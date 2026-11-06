@@ -185,6 +185,10 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .caja h3{font-weight:600;margin-bottom:6px}
 .caja p{color:var(--gris);font-size:.94rem}
 .caja .izq{text-align:left}
+.grupo-serv{font-size:.9rem;font-weight:600;color:var(--gris);margin:12px 0 0}
+.extra-pies{margin-top:14px;padding-top:4px;border-top:1px solid var(--linea)}
+.opciones-pies{display:grid;gap:8px;margin-top:4px}
+.opciones-pies .hora{padding:11px 14px}
 .clave{position:relative}
 .clave input{padding-right:50px}
 .ojo{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:50%;background:none;color:var(--gris)}
@@ -290,24 +294,25 @@ const FB=typeof firebase!=='undefined'&&!!firebase.firestore&&!!firebase.auth;
 let fs=null,auth=null,usuario=null,esAdmin=false;
 const cargado={config:false,ocupado:false,citas:false};
 const listo=()=>cargado.config&&cargado.ocupado&&cargado.citas;
-const CLAVE='dananailsc_v7';
+const CLAVE='dananailsc_v8';
 function datosIniciales(){
   const horario={};
   for(let d=1;d<7;d++)horario[d]={activo:true,desde:'08:00',hasta:'20:00'}; // lunes a sábado, 8 am a 8 pm
   horario[0]={activo:true,desde:'12:00',hasta:'20:00'};                    // domingo: libre en la mañana
   const datos={
     config:{nombre:'Dana Nails',whatsapp:'04147149667',limiteHoras:24,intervalo:30,
-      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[]},
+      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[],extraPies:60},
     servicios:[
       // todos duran 2 h 30 min (las clientas no lo ven)
-      {id:'s1',nombre:'Soft gel',duracion:150},
-      {id:'s2',nombre:'Dual form',duracion:150},
-      {id:'s3',nombre:'Semipermanente',duracion:150},
-      {id:'s4',nombre:'Nivelación',duracion:150},
-      {id:'s5',nombre:'Kapping',duracion:150},
-      {id:'s6',nombre:'Pies semipermanente',duracion:150},
-      {id:'s7',nombre:'Luxury pedi spa',duracion:150},
-      {id:'s8',nombre:'Luxury spa manicura',duracion:150}],
+      {id:'s1',nombre:'Soft gel',duracion:150,tipo:'manos'},
+      {id:'s2',nombre:'Dual form',duracion:150,tipo:'manos'},
+      {id:'s3',nombre:'Semipermanente',duracion:150,tipo:'manos'},
+      {id:'s4',nombre:'Nivelación',duracion:150,tipo:'manos'},
+      {id:'s5',nombre:'Kapping',duracion:150,tipo:'manos'},
+      {id:'s8',nombre:'Luxury spa manicura',duracion:150,tipo:'manos'},
+      {id:'s6',nombre:'Pies semipermanente',duracion:150,tipo:'pies'},
+      {id:'s7',nombre:'Luxury pedi spa',duracion:150,tipo:'pies'},
+      {id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'}],
     citas:[]
   };
   // Citas de ejemplo en los próximos días de semana
@@ -323,13 +328,31 @@ let db=Object.assign(datosIniciales(),{ocupado:[]});
 if(FB)db.citas=[];
 else{
   try{const g=JSON.parse(localStorage.getItem(CLAVE));if(g&&g.config)db=Object.assign(g,{ocupado:[]})}catch(e){}
+  migrar();
   esAdmin=true; // en modo prueba el panel no pide contraseña
   Object.keys(cargado).forEach(k=>cargado[k]=true);
 }
 function guardarLocal(){try{localStorage.setItem(CLAVE,JSON.stringify({config:db.config,servicios:db.servicios,citas:db.citas}))}catch(e){}}
 const miUid=()=>FB?usuario?.uid:'local';
 const servicio=id=>db.servicios.find(s=>s.id===id);
-const nombreServ=c=>servicio(c.servicioId)?.nombre||c.servicioNombre||'Servicio';
+const nombreServ=c=>c.servicioNombre||servicio(c.servicioId)?.nombre||'Servicio'; // lo que se reservó (ej. "Soft gel + Pies clásico")
+const esPies=x=>(x?.tipo||(/pie|pedi/i.test(x?.nombre||'')?'pies':'manos'))==='pies';
+// Pies que se pueden agregar a un servicio de manos
+const opcionesPies=()=>db.servicios.filter(x=>esPies(x)&&/cl[aá]sico|luxury/i.test(x.nombre)).sort((a,b)=>/cl[aá]sico/i.test(b.nombre)-/cl[aá]sico/i.test(a.nombre)); // clásico primero
+// Nombre y duración de la reserva: manos + pies si los agregó
+function reserva(sId,piesId){
+  const x=servicio(sId);if(!x)return null;
+  const p=piesId&&piesId!=='no'?servicio(piesId):null;
+  return {nombre:x.nombre+(p?' + '+p.nombre:''),duracion:x.duracion+(p?(db.config.extraPies||60):0)};
+}
+// Actualiza datos guardados antes de existir manos/pies (agrega el tipo y "Pies clásico" una sola vez)
+function migrar(){
+  if((db.config.version||1)>=2)return false;
+  db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'});
+  if(!db.servicios.some(x=>/pies cl[aá]sico/i.test(x.nombre)))db.servicios.push({id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'});
+  if(db.config.extraPies==null)db.config.extraPies=60;
+  db.config.version=2;return true;
+}
 const durCita=c=>c.duracion||servicio(c.servicioId)?.duracion||150;
 const inicioCita=c=>deISO(c.fecha).getTime()+aMin(c.hora)*60000;
 const finCita=c=>inicioCita(c)+durCita(c)*60000;
@@ -397,6 +420,7 @@ function suscribir(){
     const g=d.exists?d.data():null;
     db.config=Object.assign({},base.config,g?.config||{});
     db.servicios=g?.servicios?.length?g.servicios:base.servicios;
+    if(migrar()&&g&&esAdmin)guardarConfig().catch(console.error);
     if(!g&&esAdmin)guardarConfig().catch(console.error); // la primera vez se guardan los valores iniciales
     cargado.config=true;pintarRedes();refrescar();
   },errorLectura));
@@ -479,7 +503,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),nueva:null,otroSistema:null,lgCorreo:'',cc:null,
+  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -503,22 +527,28 @@ function vReservar(){
   if(ui.hecho)return vHecho();
   const s=servicio(ui.servicioId);
   const rep=ui.reprogramando?db.citas.find(c=>c.id===ui.reprogramando):null;
+  const pidePies=!rep&&s&&!esPies(s)&&opcionesPies().length>0;
+  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies);
   let h='',n=1;
   if(rep){
-    h+=`<div class="nota">🔄 Estás cambiando tu cita de <b>${esc(s?.nombre)}</b> del ${fechaLarga(rep.fecha)} a las ${hora12(rep.hora)}. Elige el nuevo día y hora.
+    h+=`<div class="nota">🔄 Estás cambiando tu cita de <b>${esc(nombreServ(rep))}</b> del ${fechaLarga(rep.fecha)} a las ${hora12(rep.hora)}. Elige el nuevo día y hora.
       <button class="mini az" onclick="cancelarReprog()">No cambiar</button></div>`;
   }else{
-    h+=`<section class="tarjeta"><div class="paso"><span class="num">${n++}</span>Elige tu servicio</div><div class="servicios">
-      ${db.servicios.map(x=>`<button class="servicio${x.id===ui.servicioId?' sel':''}" onclick="elegirServicio('${x.id}')">
-        <span><b>${esc(x.nombre)}</b></span></button>`).join('')}
-    </div></section>`;
+    const grupo=(tit,lista)=>lista.length?`<p class="grupo-serv">${tit}</p><div class="servicios">${lista.map(x=>`<button class="servicio${x.id===ui.servicioId?' sel':''}" onclick="elegirServicio('${x.id}')">
+        <span><b>${esc(x.nombre)}</b></span></button>`).join('')}</div>`:'';
+    h+=`<section class="tarjeta"><div class="paso"><span class="num">${n++}</span>Elige tu servicio</div>
+      ${grupo('Manos 💅',db.servicios.filter(x=>!esPies(x)))}${grupo('Pies 🦶',db.servicios.filter(esPies))}
+      ${pidePies?`<div class="extra-pies" id="pPies"><label>¿Quieres agregar pies?</label>
+        <div class="opciones-pies">${[['no','No, gracias'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<button class="hora${ui.pies===v?' sel':''}" onclick="elegirPies('${v}')">${esc(t)}</button>`).join('')}</div></div>`:''}
+    </section>`;
   }
   if(!s)return h;
+  if(pidePies&&ui.pies==null)return h; // primero responde si quiere pies
 
-  h+=vCalendario(s,n++);
+  h+=vCalendario(R.duracion,n++);
   if(!ui.fecha)return h;
 
-  const libres=horasLibres(ui.fecha,s.duracion,ui.reprogramando);
+  const libres=horasLibres(ui.fecha,R.duracion,ui.reprogramando);
   h+=`<section class="tarjeta" id="p3"><div class="paso"><span class="num">${n++}</span>Elige la hora</div>
     <p class="sub">${cap(fechaLarga(ui.fecha))}</p>
     ${libres.length?`<div class="horas">${libres.map(x=>`<button class="hora${x===ui.hora?' sel':''}" onclick="elegirHora('${x}')">${hora12(x)}</button>`).join('')}</div>`
@@ -539,19 +569,19 @@ function vReservar(){
     </section>`;
   }
   h+=`<section class="tarjeta resumen" id="p5"><div class="paso"><span class="num">${n}</span>Confirma tu cita</div>
-    <ul><li>💅 ${esc(s.nombre)}</li><li>📅 ${cap(fechaLarga(ui.fecha))}</li><li>🕐 ${hora12(ui.hora)}</li>${!rep&&ui.otroSistema?'<li>✨ Vengo con sistema de otro lado</li>':''}</ul>
+    <ul><li>💅 ${esc(R.nombre)}</li><li>📅 ${cap(fechaLarga(ui.fecha))}</li><li>🕐 ${hora12(ui.hora)}</li>${!rep&&ui.otroSistema?'<li>✨ Vengo con sistema de otro lado</li>':''}</ul>
     <button class="boton" onclick="agendar()">${rep?'Guardar nuevo horario ✨':'Agendar mi cita ✨'}</button></section>`;
   return h;
 }
 
-function vCalendario(s,n){
+function vCalendario(duracion,n){
   const y=ui.mes.getFullYear(),m=ui.mes.getMonth(),hoy=hoyISO(),d0=deISO(hoy);
   const lim=new Date(d0);lim.setDate(lim.getDate()+DIAS_MAX);
   let celdas=['L','M','M','J','V','S','D'].map(x=>`<div class="dsem">${x}</div>`).join('');
   celdas+='<div></div>'.repeat((new Date(y,m,1).getDay()+6)%7);
   const total=new Date(y,m+1,0).getDate();
   for(let d=1;d<=total;d++){
-    const f=iso(new Date(y,m,d)),libre=diaReservable(f,s.duracion,ui.reprogramando);
+    const f=iso(new Date(y,m,d)),libre=diaReservable(f,duracion,ui.reprogramando);
     celdas+=`<button class="dia${libre?' libre':''}${f===ui.fecha?' sel':''}${f===hoy?' hoy':''}" ${libre?`onclick="elegirFecha('${f}')"`:'disabled'} aria-label="${fechaLarga(f)}">${d}</button>`;
   }
   const atras=new Date(y,m,1)>new Date(d0.getFullYear(),d0.getMonth(),1);
@@ -573,8 +603,13 @@ function vHecho(){
 }
 
 function elegirServicio(id){
-  ui.servicioId=id;ui.fecha=null;ui.hora=null;
-  const p=primerDiaLibre(servicio(id).duracion);
+  ui.servicioId=id;ui.pies=null;ui.fecha=null;ui.hora=null;
+  if(!esPies(servicio(id))&&opcionesPies().length){render();bajar('pPies');return} // servicio de manos: ¿agrega pies?
+  irAlCalendario();
+}
+function elegirPies(v){ui.pies=v;ui.fecha=null;ui.hora=null;irAlCalendario()}
+function irAlCalendario(){
+  const p=primerDiaLibre(reserva(ui.servicioId,ui.pies).duracion);
   if(p){const d=deISO(p);ui.mes=new Date(d.getFullYear(),d.getMonth(),1)}
   render();bajar('p2');
 }
@@ -602,8 +637,9 @@ function cargarFoto(inp){
 let guardando=false; // evita guardar dos veces si tocan rápido
 async function agendar(){
   if(guardando)return;
-  const s=servicio(ui.servicioId);
-  if(!horasLibres(ui.fecha,s.duracion,ui.reprogramando).includes(ui.hora)){
+  const s=servicio(ui.servicioId),rep=ui.reprogramando?db.citas.find(x=>x.id===ui.reprogramando):null;
+  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies);
+  if(!horasLibres(ui.fecha,R.duracion,ui.reprogramando).includes(ui.hora)){
     aviso('😕','Esa hora ya no está disponible','Elige otra, porfa');ui.hora=null;render();return;
   }
   let c;
@@ -620,7 +656,7 @@ async function agendar(){
     if(tel.length<10){aviso('📱','Revisa tu número','Debe tener al menos 10 dígitos');$('tel').focus();return}
     if(ui.otroSistema===null){aviso('💅','Cuéntanos si vienes con sistema','Toca Sí o No');bajar('p4');return}
     // siempre queda pendiente: la confirma Dana (al confirmar envía el precio)
-    c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:s.nombre,duracion:s.duracion,fecha:ui.fecha,hora:ui.hora,
+    c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:R.duracion,fecha:ui.fecha,hora:ui.hora,
       nombre,telefono:tel,foto:ui.foto||null,otroSistema:ui.otroSistema,estado:'pendiente',creada:Date.now()};
     guardando=true;
     const ok=await intentar(()=>crearCita(c));
@@ -628,7 +664,7 @@ async function agendar(){
     notificarManicurista(c,'nueva');
     ui.hecho=c;
   }
-  ui.reprogramando=null;ui.servicioId=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;
+  ui.reprogramando=null;ui.servicioId=null;ui.pies=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;
   render();window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -769,8 +805,8 @@ function vAgenda(){
 function vNuevaCita(){
   const n=ui.nueva;
   if(!n)return `<button class="boton" style="margin:0 0 16px" onclick="abrirNueva()">＋ Agendar una cita</button>`;
-  const s=servicio(n.servicioId);
-  const libres=s&&n.fecha?horasLibres(n.fecha,s.duracion):[];
+  const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies);
+  const libres=s&&n.fecha?horasLibres(n.fecha,R.duracion):[];
   if(!libres.includes(n.hora))n.hora=libres[0]||'';
   const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
   return `<section class="tarjeta" id="nueva"><div class="paso">💅 Nueva cita</div>
@@ -781,7 +817,8 @@ function vNuevaCita(){
     <input id="nTel" type="tel" inputmode="tel" value="${esc(n.tel)}" oninput="ui.nueva.tel=this.value" placeholder="Ej: 0414 123 4567">
     <div style="margin-top:14px"><label class="sw"><input type="checkbox" ${n.otroSistema?'checked':''} onchange="ui.nueva.otroSistema=this.checked"><span>Viene con sistema de otra manicurista</span></label></div>
     <label for="nServ">Servicio</label>
-    <select id="nServ" onchange="ui.nueva.servicioId=this.value;render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
+    <select id="nServ" onchange="ui.nueva.servicioId=this.value;ui.nueva.pies='no';render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
+    ${s&&!esPies(s)&&opcionesPies().length?`<label for="nPies">Agregar pies</label><select id="nPies" onchange="ui.nueva.pies=this.value;render()">${[['no','No'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<option value="${v}"${(n.pies||'no')===v?' selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
     <div class="dos">
       <label>Día<input type="date" min="${hoy}" max="${iso(lim)}" value="${n.fecha}" onchange="ui.nueva.fecha=this.value;render()"></label>
       <label>Hora${libres.length
@@ -795,15 +832,15 @@ function abrirNueva(){
   const s0=db.servicios[0],d=s0?.duracion||150;
   // si el día que está viendo ya no tiene horas libres, se propone el próximo día libre
   const fecha=horasLibres(ui.adminFecha,d).length?ui.adminFecha:(primerDiaLibre(d)||ui.adminFecha);
-  ui.nueva={nombre:'',tel:'',otroSistema:false,servicioId:s0?.id,fecha,hora:''};
+  ui.nueva={nombre:'',tel:'',otroSistema:false,servicioId:s0?.id,pies:'no',fecha,hora:''};
   render();bajar('nueva');
 }
 async function guardarNueva(){
-  const n=ui.nueva,s=servicio(n.servicioId),nombre=n.nombre.trim(),tel=normTel(n.tel);
+  const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),nombre=n.nombre.trim(),tel=normTel(n.tel);
   if(nombre.length<2){aviso('✍️','Falta el nombre de la clienta','');$('nNom').focus();return}
   if(tel&&tel.length<10){aviso('📱','Revisa el número','Debe tener al menos 10 dígitos, o déjalo vacío');$('nTel').focus();return}
-  if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,s.duracion).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
-  const c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:s.nombre,duracion:s.duracion,fecha:n.fecha,hora:n.hora,
+  if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,R.duracion).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
+  const c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:R.duracion,fecha:n.fecha,hora:n.hora,
     nombre,telefono:tel,foto:null,otroSistema:n.otroSistema,estado:'confirmada',creadaPor:'manicurista',creada:Date.now()};
   if(guardando)return;guardando=true;
   const ok=await intentar(()=>crearCita(c));guardando=false;if(!ok)return;
@@ -946,9 +983,13 @@ function vAjustes(){
   <section class="tarjeta"><div class="paso">💅 Servicios</div>
     <p class="sub" style="margin-bottom:10px">Las clientas no ven la duración; solo sirve para que las citas no se crucen.</p>
     ${db.servicios.map((s,i)=>`<div class="serv-edit"><input value="${esc(s.nombre)}" aria-label="Nombre del servicio" onchange="setServ(${i},'nombre',this.value)">
-      <label>Duración<select onchange="setServ(${i},'duracion',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===s.duracion?' selected':''}>${dur(m)}</option>`).join('')}</select></label>
+      <div class="dos"><label>Tipo<select onchange="setServ(${i},'tipo',this.value)"><option value="manos"${!esPies(s)?' selected':''}>Manos</option><option value="pies"${esPies(s)?' selected':''}>Pies</option></select></label>
+      <label>Duración<select onchange="setServ(${i},'duracion',+this.value)">${[30,45,60,90,120,150,180,210,240].map(m=>`<option value="${m}"${m===s.duracion?' selected':''}>${dur(m)}</option>`).join('')}</select></label></div>
       <button class="mini no" onclick="quitarServ(${i})">Eliminar</button></div>`).join('')}
-    <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button></section>
+    <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button>
+    <label for="aExtra">Tiempo extra cuando agregan pies a un servicio de manos</label>
+    <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150].map(m=>`<option value="${m}"${m===(db.config.extraPies||60)?' selected':''}>${dur(m)}</option>`).join('')}</select>
+    <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «clásico» o «luxury».</p></section>
   ${FB?`<section class="tarjeta" id="sesion"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
     ${ui.cc?`<label for="ccActual">Contraseña actual</label><div class="clave"><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">${botonOjo('ccActual')}</div>
       <label for="ccNueva">Nueva contraseña</label><div class="clave"><input id="ccNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" value="${esc(ui.cc.n)}" oninput="ui.cc.n=this.value">${botonOjo('ccNueva')}</div>
@@ -962,9 +1003,9 @@ function vAjustes(){
 function setCfg(k,v){db.config[k]=v;intentar(guardarConfig).then(ok=>{if(!ok)return;if(k==='whatsapp')pintarRedes();aviso('💾','Guardado','')})}
 function setServ(i,k,v){
   if(k==='nombre'){v=v.trim();if(!v){render();return}}
-  db.servicios[i][k]=v;intentar(guardarConfig).then(ok=>{if(ok)aviso('💾','Servicio guardado','')});
+  db.servicios[i][k]=v;intentar(guardarConfig).then(ok=>{if(!ok)return;aviso('💾','Servicio guardado','');if(k==='tipo')render()});
 }
-async function agregarServ(){db.servicios.push({id:'s'+Date.now().toString(36),nombre:'Nuevo servicio',duracion:150});if(await intentar(guardarConfig))render()}
+async function agregarServ(){db.servicios.push({id:'s'+Date.now().toString(36),nombre:'Nuevo servicio',duracion:150,tipo:'manos'});if(await intentar(guardarConfig))render()}
 function quitarServ(i){confirmar('¿Eliminar este servicio?',db.servicios[i].nombre,'Sí, eliminar',async()=>{db.servicios.splice(i,1);if(await intentar(guardarConfig))render()})}
 function reiniciar(){confirmar('¿Reiniciar datos?','Se borran las citas y ajustes, y vuelven los de ejemplo.','Sí, reiniciar',()=>{db=Object.assign(datosIniciales(),{ocupado:[]});guardarLocal();render();aviso('✨','Listo','Datos de ejemplo restaurados')})}
 
