@@ -10,8 +10,13 @@ const DANA_UID = 'g9fF6IX7VhN78bwys1VfyGcCRDd2';
 const API_KEY = 'AIzaSyDyWK4vBeBvch-JYa5WhjoNHwfqGwv6448';
 const APP = 'https://darix2801.github.io/dana-nails/';
 const FS = `https://firestore.googleapis.com/v1/projects/${PROYECTO}/databases/(default)/documents`;
-const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+// "2026-11-10", "08:00" -> "martes 10 de noviembre, 8:00 am"
+function cuando(fecha, hora) {
+  const [y, m, d] = fecha.split('-').map(Number), [hh, mm] = hora.split(':').map(Number);
+  return `${DIAS[new Date(y, m - 1, d).getDay()]} ${d} de ${MESES[m - 1]}, ${hh % 12 || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'pm' : 'am'}`;
+}
 
 // ---- permiso de Google con la cuenta de servicio (se renueva cada hora) ----
 let permiso = null;
@@ -53,12 +58,12 @@ async function telefonosDana(tk) {
   const j = await r.json();
   return (j.documents || []).map(d => decodeURIComponent(d.name.split('/').pop()));
 }
-async function enviarPush(tk, token, titulo, cuerpo) {
+async function enviarPush(tk, token, titulo, cuerpo, link = APP) {
   const r = await fetch(`https://fcm.googleapis.com/v1/projects/${PROYECTO}/messages:send`, {
     method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: { token, webpush: {
       notification: { title: titulo, body: cuerpo, icon: APP + 'icon-192.png', badge: APP + 'icon-192.png' },
-      fcm_options: { link: APP } } } })
+      fcm_options: { link } } } })
   });
   if (r.ok) return true;
   const t = await r.text();
@@ -77,7 +82,7 @@ export default {
     try { d = await req.json(); } catch { return resp({ error: 'datos' }, 400); }
     try {
       const tk = await tokenGoogle(env);
-      let titulo, cuerpo, marca = null;
+      let titulo, cuerpo, marca = null, link = APP;
 
       if (d.tipo === 'prueba') {
         // solo Dana puede pedir una prueba: se revisa su sesión
@@ -96,17 +101,27 @@ export default {
         if (!real) return resp({ error: 'no coincide' }, 409);
         marca = new Request(`https://avisos.dana-nails/${d.id}/${d.tipo}/${c.fecha}/${c.hora}`);
         if (await caches.default.match(marca)) return resp({ enviados: 0, nota: 'ya avisado' });
-        const [y, m, dd] = c.fecha.split('-').map(Number), dia = new Date(y, m - 1, dd);
-        const [hh, mm] = c.hora.split(':').map(Number);
-        const cuando = `${DIAS[dia.getDay()]} ${dd} ${MESES[m - 1]} · ${hh % 12 || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'pm' : 'am'}`;
-        titulo = { nueva: '📲 Nueva cita', reprogramada: '🔄 Una clienta cambió su cita', cancelada: '💔 Cita cancelada' }[d.tipo];
-        cuerpo = `${c.nombre} · ${c.servicioNombre || 'Servicio'} · ${cuando}` +
-          (c.otroSistema && d.tipo !== 'cancelada' ? ' · viene con sistema de otro lado' : '');
+        // fecha y hora de antes (solo al cambiar la cita): "2026-11-10T08:00"
+        const antes = d.tipo === 'reprogramada' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(d.antes || '') ? d.antes.split('T') : null;
+        const quien = (c.nombre || 'Una clienta').trim(), serv = (c.servicioNombre || 'Servicio').replace(/Pies cl[aá]sico/i, 'Pies semipermanente');
+        const nueva = cuando(c.fecha, c.hora);
+        if (d.tipo === 'cancelada') {
+          titulo = '💔 Cita cancelada';
+          cuerpo = `${quien} canceló su cita de ${serv} del ${nueva}`;
+        } else if (d.tipo === 'reprogramada') {
+          titulo = '🔄 Cita cambiada';
+          cuerpo = `${quien} cambió su cita${antes ? ` del ${cuando(antes[0], antes[1])}` : ''} para el ${nueva}`;
+        } else {
+          titulo = '📲 Nueva cita';
+          cuerpo = `${quien} agendó ${serv} para el ${nueva}` + (c.otroSistema ? '. Viene con sistema de otro lado' : '');
+        }
+        // al tocar la notificación, la app abre la cita y explica qué pasó
+        link = `${APP}?aviso=${d.tipo}&cita=${d.id}` + (antes ? `&antes=${antes[0]}T${antes[1]}` : '');
       }
 
       const telefonos = await telefonosDana(tk);
       let enviados = 0;
-      for (const t of telefonos) if (await enviarPush(tk, t, titulo, cuerpo)) enviados++;
+      for (const t of telefonos) if (await enviarPush(tk, t, titulo, cuerpo, link)) enviados++;
 
       // WhatsApp (opcional, si CallMeBot está configurado)
       if (env.CALLMEBOT_KEY && env.TELEFONO && d.tipo !== 'prueba') {

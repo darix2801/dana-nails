@@ -266,6 +266,11 @@ textarea{width:100%;padding:10px 12px;border:1.5px solid var(--linea);border-rad
   <div class="caja larga"><h3 id="polTit">📋 Políticas del studio</h3><div id="polLista"></div>
     <button class="boton" style="margin-top:16px" onclick="$('modalPol').classList.remove('ver')">Entendido 💙</button></div>
 </div>
+<div class="modal" id="modalAviso" role="dialog" aria-modal="true" aria-labelledby="maTit">
+  <div class="caja"><div style="font-size:2.6rem;line-height:1.2" id="maIc"></div><h3 id="maTit"></h3><p id="maTxt"></p>
+    <button class="boton" id="maVer" style="margin-top:16px">Ver en mi agenda</button>
+    <button class="enlace" style="margin-top:10px" onclick="$('modalAviso').classList.remove('ver')">Cerrar</button></div>
+</div>
 <div class="visor" id="visor" onclick="this.classList.remove('ver')"><img id="visorImg" alt="Foto de referencia"></div>
 <div class="modal" id="modalPrecio" role="dialog" aria-modal="true" aria-labelledby="mpTit">
   <div class="caja"><h3 id="mpTit">Confirmar cita</h3><p id="mpTxt"></p>
@@ -353,8 +358,7 @@ function datosIniciales(){
       {id:'s5',nombre:'Kapping',duracion:150,tipo:'manos'},
       {id:'s8',nombre:'Luxury spa manicura',duracion:150,tipo:'manos'},
       {id:'s6',nombre:'Pies semipermanente',duracion:150,tipo:'pies'},
-      {id:'s7',nombre:'Luxury pedi spa',duracion:150,tipo:'pies'},
-      {id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'}],
+      {id:'s7',nombre:'Luxury pedi spa',duracion:150,tipo:'pies'}],
     citas:[]
   };
   // Citas de ejemplo en los próximos días de semana
@@ -377,25 +381,28 @@ else{
 function guardarLocal(){try{localStorage.setItem(CLAVE,JSON.stringify({config:db.config,servicios:db.servicios,citas:db.citas}))}catch(e){}}
 const miUid=()=>FB?usuario?.uid:'local';
 const servicio=id=>db.servicios.find(s=>s.id===id);
-const nombreServ=c=>c.servicioNombre||servicio(c.servicioId)?.nombre||'Servicio'; // lo que se reservó (ej. "Soft gel + Pies clásico")
+const nombreServ=c=>(c.servicioNombre||servicio(c.servicioId)?.nombre||'Servicio').replace(/Pies cl[aá]sico/i,'Pies semipermanente'); // lo que se reservó (ej. "Soft gel + Pies semipermanente")
 const esPies=x=>(x?.tipo||(/pie|pedi/i.test(x?.nombre||'')?'pies':'manos'))==='pies';
 // Pies que se pueden agregar a un servicio de manos
-const opcionesPies=()=>db.servicios.filter(x=>esPies(x)&&/cl[aá]sico|luxury/i.test(x.nombre)).sort((a,b)=>/cl[aá]sico/i.test(b.nombre)-/cl[aá]sico/i.test(a.nombre)); // clásico primero
+const opcionesPies=()=>db.servicios.filter(x=>esPies(x)&&/semiperm|luxury/i.test(x.nombre)).sort((a,b)=>/semiperm/i.test(b.nombre)-/semiperm/i.test(a.nombre)); // semipermanente primero
 // Nombre y duración de la reserva: manos + pies si los agregó
 function reserva(sId,piesId){
   const x=servicio(sId);if(!x)return null;
   const p=piesId&&piesId!=='no'?servicio(piesId):null;
   return {nombre:x.nombre+(p?' + '+p.nombre:''),duracion:x.duracion+(p?(db.config.extraPies||120):0)};
 }
-// Actualiza datos guardados antes de existir manos/pies (agrega el tipo y "Pies clásico" una sola vez)
+// Actualiza datos guardados con versiones anteriores de la app
 function migrar(){
-  const v=db.config.version||1;if(v>=3)return false;
-  if(v<2){
-    db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'});
-    if(!db.servicios.some(x=>/pies cl[aá]sico/i.test(x.nombre)))db.servicios.push({id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'});
+  const v=db.config.version||1;if(v>=4)return false;
+  if(v<2)db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'}); // manos o pies
+  if(v<3&&(db.config.extraPies==null||db.config.extraPies===60))db.config.extraPies=120;       // agregar pies = 2 horas más
+  // v4: "Pies clásico" no existe, el servicio se llama "Pies semipermanente"
+  const clasicos=db.servicios.filter(x=>/pies cl[aá]sico/i.test(x.nombre));
+  if(clasicos.length){
+    if(db.servicios.some(x=>/pies semiperm/i.test(x.nombre)))db.servicios=db.servicios.filter(x=>!clasicos.includes(x));
+    else{clasicos[0].nombre='Pies semipermanente';db.servicios=db.servicios.filter(x=>!clasicos.slice(1).includes(x))}
   }
-  if(db.config.extraPies==null||db.config.extraPies===60)db.config.extraPies=120; // agregar pies = 2 horas más
-  db.config.version=3;return true;
+  db.config.version=4;return true;
 }
 // ----- Políticas del studio (Dana las puede editar en Ajustes) -----
 const POLITICAS_BASE=[
@@ -498,12 +505,15 @@ function suscribir(){
   const q=esAdmin?fs.collection('citas').where('fecha','>=',desde):fs.collection('citas').where('uid','==',usuario.uid);
   let primera=true;
   desuscribir.push(q.onSnapshot(r=>{
+    const previas={};db.citas.forEach(c=>previas[c.id]=c);
     db.citas=r.docs.map(d=>Object.assign({id:d.id},d.data()));
     if(esAdmin&&!primera)r.docChanges().forEach(ch=>{ // avisos en vivo para Dana
       if(ch.doc.metadata.hasPendingWrites)return;
-      const c=Object.assign({id:ch.doc.id},ch.doc.data());
-      if(ch.type==='added'&&c.creadaPor!=='manicurista')aviso('📲','Nueva cita',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)} · ${nombreServ(c)}`);
-      if(ch.type==='modified'&&c.estado==='cancelada'&&c.canceladaPor==='clienta')aviso('💔','Cita cancelada',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`);
+      const c=Object.assign({id:ch.doc.id},ch.doc.data()),p=previas[c.id];let a=null;
+      if(ch.type==='added'&&c.creadaPor!=='manicurista')a=textoAviso('nueva',c);
+      if(ch.type==='modified'&&c.estado==='cancelada'&&c.canceladaPor==='clienta'&&p?.estado!=='cancelada')a=textoAviso('cancelada',c);
+      if(ch.type==='modified'&&c.estado==='pendiente'&&p&&(p.fecha!==c.fecha||p.hora!==c.hora))a=textoAviso('reprogramada',c,p.fecha+'T'+p.hora);
+      if(a)aviso(a.ic,a.titulo,a.texto);
     });
     primera=false;cargado.citas=true;refrescar();
   },errorLectura));
@@ -531,7 +541,7 @@ function refrescar(){
     }
     return;
   }
-  render();
+  render();mostrarAvisoAbierto();
 }
 
 // ================= Disponibilidad =================
@@ -713,10 +723,10 @@ async function agendar(){
   let c;
   if(ui.reprogramando){
     c=db.citas.find(x=>x.id===ui.reprogramando);if(!c){cancelarReprog();return}
-    guardando=true;
+    guardando=true;const antes=c.fecha+'T'+c.hora; // para que el aviso diga de qué día a qué día la cambió
     const ok=await intentar(()=>cambiarCita(c,{fecha:ui.fecha,hora:ui.hora,estado:'pendiente'}));
     guardando=false;if(!ok)return;
-    notificarManicurista(c,'reprogramada');
+    notificarManicurista(c,'reprogramada',antes);
     ui.hecho=Object.assign({},c,{reprog:true});
   }else{
     const nombre=ui.nombre.trim(),tel=normTel(ui.tel);
@@ -742,14 +752,55 @@ async function agendar(){
 // una notificación al teléfono (y WhatsApp si se configura CallMeBot).
 const AVISOS_URL='https://dana-nails-avisos.daraomana17.workers.dev/'; // Worker de Cloudflare
 const VAPID_KEY='BDEoBpHr-mEo6dkNspaJF0qAQmAPlWn0rbDoMuEb9LnPpWMPpSFt6qAJNOee2qplQ3Bid4j5ZC7B3J_31Lu20u8'; // Firebase → Cloud Messaging → Certificados push web
-function notificarManicurista(c,tipo){
+function notificarManicurista(c,tipo,antes){
   if(FB){
     if(AVISOS_URL)fetch(AVISOS_URL,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:c.id,tipo})}).catch(console.error); // el Worker lee los datos de la cita en Firebase
+      body:JSON.stringify({id:c.id,tipo,antes})}).catch(console.error); // el Worker lee los datos de la cita en Firebase
     return;
   }
-  const t={nueva:'Nueva cita',cancelada:'Cita cancelada',reprogramada:'Cita cambiada'}[tipo];
-  setTimeout(()=>aviso('📲',t+' (simulación del aviso)',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)} · ${nombreServ(c)}${c.otroSistema?' · viene con sistema de otro lado':''}`),500);
+  const a=textoAviso(tipo,c,antes);
+  setTimeout(()=>aviso(a.ic,a.titulo+' (simulación del aviso)',a.texto),500);
+}
+// ----- Dana abre una notificación: se muestra qué pasó con esa cita -----
+let avisoAbierto=null;
+function leerAviso(url){
+  try{
+    const u=new URL(url,location.href),tipo=u.searchParams.get('aviso');
+    if(!['nueva','reprogramada','cancelada'].includes(tipo))return false;
+    avisoAbierto={tipo,id:u.searchParams.get('cita')||'',antes:u.searchParams.get('antes')||''};
+    ui.vista='admin';ui.adminTab='agenda';return true;
+  }catch(e){return false}
+}
+function mostrarAvisoAbierto(){
+  if(!avisoAbierto||!esAdmin||!listo())return;
+  const {tipo,id,antes}=avisoAbierto,c=db.citas.find(x=>x.id===id);
+  if(!c&&!avisoAbierto.forzar){ // las citas pueden tardar un momento en llegar: se espera hasta 5 segundos
+    avisoAbierto.espera=avisoAbierto.espera||setTimeout(()=>{if(avisoAbierto){avisoAbierto.forzar=true;mostrarAvisoAbierto()}},5000);return;
+  }
+  clearTimeout(avisoAbierto.espera);avisoAbierto=null;
+  const a=c?textoAviso(tipo,c,antes):{ic:'📅',titulo:'Revisa tu agenda',texto:'No encontré esa cita; puede que ya no exista.'};
+  $('maIc').textContent=a.ic;$('maTit').textContent=a.titulo;$('maTxt').textContent=a.texto;
+  $('maVer').onclick=()=>{$('modalAviso').classList.remove('ver');
+    if(c){const d=deISO(c.fecha);ui.adminFecha=c.fecha;ui.adminMes=new Date(d.getFullYear(),d.getMonth(),1)}
+    ui.vista='admin';ui.adminTab='agenda';render();bajar('diaSel')};
+  $('modalAviso').classList.add('ver');
+}
+if(leerAviso(location.href))history.replaceState(null,'',location.pathname); // se quita del link para que no salga otra vez
+// si la app ya estaba abierta, el service worker le pasa la notificación que se tocó
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{
+  if(e.data?.tipo==='aviso-dana'&&leerAviso(e.data.url)){render();mostrarAvisoAbierto()}
+});
+// al volver a la app se vuelve a dibujar (evita que quede en blanco)
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refrescar()});
+
+// Qué pasó con la cita, en palabras (para los avisos de Dana)
+const cuandoLargo=(f,h)=>`${fechaLarga(f)} a las ${hora12(h)}`;
+function textoAviso(tipo,c,antes){
+  const quien=c.nombre.trim(),[af,ah]=(antes||'').split('T');
+  const pend=c.estado==='pendiente'?' Queda pendiente de que la confirmes.':'';
+  if(tipo==='cancelada')return {ic:'💔',titulo:'Cita cancelada',texto:`${quien} canceló su cita de ${nombreServ(c)} del ${cuandoLargo(c.fecha,c.hora)}.`};
+  if(tipo==='reprogramada')return {ic:'🔄',titulo:'Cita cambiada',texto:`${quien} cambió su cita de ${nombreServ(c)}${af&&ah?` del ${cuandoLargo(af,ah)}`:''} para el ${cuandoLargo(c.fecha,c.hora)}.${pend}`};
+  return {ic:'📲',titulo:'Nueva cita',texto:`${quien} agendó ${nombreServ(c)} para el ${cuandoLargo(c.fecha,c.hora)}.${c.otroSistema?' Viene con sistema de otro lado.':''}${pend}`};
 }
 
 // ================= Vista: Mis citas =================
@@ -1141,7 +1192,7 @@ function vAjustes(){
     <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button>
     <label for="aExtra">Tiempo extra cuando agregan pies a un servicio de manos</label>
     <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===(db.config.extraPies||120)?' selected':''}>${dur(m)}</option>`).join('')}</select>
-    <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «clásico» o «luxury».</p></section>
+    <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «semipermanente» o «luxury».</p></section>
   <section class="tarjeta" id="aPol"><div class="paso">📋 Políticas</div>
     <p class="sub" style="margin-bottom:10px">Las clientas las leen y aceptan antes de agendar, y puedes enviarlas en el mensaje de confirmación. Escribe un punto por línea.</p>
     ${(db.config.politicas||POLITICAS_BASE).map((p,i)=>`<div class="serv-edit"><input value="${esc(p.titulo)}" aria-label="Título de la política ${i+1}" onchange="setPol(${i},'titulo',this.value)">
@@ -1256,7 +1307,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06c'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06d'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{

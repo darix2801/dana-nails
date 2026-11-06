@@ -18,12 +18,19 @@ self.addEventListener('push', e => {
   }));
 });
 
-// al tocar la notificación se abre la app (o se trae al frente si ya está abierta)
+// al tocar la notificación se abre la app y muestra qué pasó con la cita
+// (si ya estaba abierta, se trae al frente y se le pasa la notificación)
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const link = (e.notification.data && e.notification.data.link) || APP;
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(lista => {
-    for (const c of lista) if ('focus' in c) return c.focus();
-    return self.clients.openWindow(link);
-  }));
+  e.waitUntil((async () => {
+    const lista = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const c = lista.find(x => x.url.startsWith(APP)) || lista[0];
+    if (c) {
+      try { await c.focus(); } catch (err) {}
+      c.postMessage({ tipo: 'aviso-dana', url: link });
+      return;
+    }
+    await self.clients.openWindow(link);
+  })());
 });
