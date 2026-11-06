@@ -384,7 +384,7 @@ const servicio=id=>db.servicios.find(s=>s.id===id);
 const nombreServ=c=>(c.servicioNombre||servicio(c.servicioId)?.nombre||'Servicio').replace(/Pies cl[aá]sico/i,'Pies semipermanente'); // lo que se reservó (ej. "Soft gel + Pies semipermanente")
 const esPies=x=>(x?.tipo||(/pie|pedi/i.test(x?.nombre||'')?'pies':'manos'))==='pies';
 // Pies que se pueden agregar a un servicio de manos
-const opcionesPies=()=>db.servicios.filter(x=>esPies(x)&&/semiperm|luxury/i.test(x.nombre)).sort((a,b)=>/semiperm/i.test(b.nombre)-/semiperm/i.test(a.nombre)); // semipermanente primero
+const opcionesPies=()=>db.servicios.filter(x=>(esPies(x)||/pie|pedi/i.test(x.nombre))&&/semiperm|luxury/i.test(x.nombre)).sort((a,b)=>/semiperm/i.test(b.nombre)-/semiperm/i.test(a.nombre)); // semipermanente primero
 // Nombre y duración de la reserva: manos + pies si los agregó
 function reserva(sId,piesId){
   const x=servicio(sId);if(!x)return null;
@@ -1307,7 +1307,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06d'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06e'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
