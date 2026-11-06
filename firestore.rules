@@ -33,6 +33,11 @@ service cloud.firestore {
       );
     }
 
+    // Teléfonos de Dana que reciben las notificaciones: solo Dana
+    match /tokens/{t} {
+      allow read, write: if esDana();
+    }
+
     // Citas con datos personales: solo las ven Dana y la clienta que la agendó
     match /citas/{id} {
       allow read: if esDana() || (conSesion() && resource.data.uid == request.auth.uid);

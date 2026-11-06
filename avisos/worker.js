@@ -1,55 +1,123 @@
-// Dana Nails · avisos por WhatsApp a Dana (Cloudflare Worker)
+// Dana Nails · avisos a Dana cuando una clienta agenda, cambia o cancela (Cloudflare Worker)
+// Manda una notificación al teléfono de Dana (y WhatsApp si se configura CallMeBot).
+//
 // En Settings → Variables and Secrets agrega:
-//   CALLMEBOT_KEY = el código (apikey) que le mandó CallMeBot a Dana   (tipo: Secret)
-//   TELEFONO      = 584147149667  (el WhatsApp de Dana con código de país, sin + ni espacios)
+//   FIREBASE_SA   (Secret)  = todo el texto del archivo .json de la cuenta de servicio de Firebase
+//   CALLMEBOT_KEY (Secret, opcional) y TELEFONO (Text, opcional, ej. 584147149667) para WhatsApp
 const ORIGEN = 'https://darix2801.github.io';
-const FIRESTORE = 'https://firestore.googleapis.com/v1/projects/dana-nails/databases/(default)/documents/ocupado/';
+const PROYECTO = 'dana-nails';
+const DANA_UID = 'g9fF6IX7VhN78bwys1VfyGcCRDd2';
 const API_KEY = 'AIzaSyDyWK4vBeBvch-JYa5WhjoNHwfqGwv6448';
-const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const APP = 'https://darix2801.github.io/dana-nails/';
+const FS = `https://firestore.googleapis.com/v1/projects/${PROYECTO}/databases/(default)/documents`;
+const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+// ---- permiso de Google con la cuenta de servicio (se renueva cada hora) ----
+let permiso = null;
+const b64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+const txt64u = t => b64u(new TextEncoder().encode(t));
+async function tokenGoogle(env) {
+  if (permiso && permiso.vence > Date.now() + 60000) return permiso.token;
+  const sa = JSON.parse(env.FIREBASE_SA), ahora = Math.floor(Date.now() / 1000);
+  const cab = txt64u(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const datos = txt64u(JSON.stringify({
+    iss: sa.client_email, aud: 'https://oauth2.googleapis.com/token', iat: ahora, exp: ahora + 3600,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/datastore'
+  }));
+  const der = Uint8Array.from(atob(sa.private_key.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')), c => c.charCodeAt(0));
+  const llave = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const firma = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', llave, new TextEncoder().encode(cab + '.' + datos));
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + cab + '.' + datos + '.' + b64u(firma)
+  });
+  const j = await r.json();
+  if (!j.access_token) throw new Error('No se pudo entrar a Google: ' + JSON.stringify(j));
+  permiso = { token: j.access_token, vence: Date.now() + (j.expires_in || 3600) * 1000 };
+  return permiso.token;
+}
+
+// ---- Firestore ----
+const valor = f => f == null ? null : 'stringValue' in f ? f.stringValue : 'integerValue' in f ? Number(f.integerValue)
+  : 'doubleValue' in f ? f.doubleValue : 'booleanValue' in f ? f.booleanValue : null;
+async function leerCita(id, tk) {
+  const r = await fetch(`${FS}/citas/${id}`, { headers: { Authorization: 'Bearer ' + tk } });
+  if (!r.ok) return null;
+  const f = (await r.json()).fields || {}, c = {};
+  for (const k in f) c[k] = valor(f[k]);
+  return c;
+}
+async function telefonosDana(tk) {
+  const r = await fetch(`${FS}/tokens?pageSize=50`, { headers: { Authorization: 'Bearer ' + tk } });
+  const j = await r.json();
+  return (j.documents || []).map(d => decodeURIComponent(d.name.split('/').pop()));
+}
+async function enviarPush(tk, token, titulo, cuerpo) {
+  const r = await fetch(`https://fcm.googleapis.com/v1/projects/${PROYECTO}/messages:send`, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: { token, webpush: {
+      notification: { title: titulo, body: cuerpo, icon: APP + 'icon-192.png', badge: APP + 'icon-192.png' },
+      fcm_options: { link: APP } } } })
+  });
+  if (r.ok) return true;
+  const t = await r.text();
+  if (/UNREGISTERED|NOT_FOUND/.test(t)) // ese teléfono ya no recibe: se borra
+    await fetch(`${FS}/tokens/${encodeURIComponent(token)}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + tk } });
+  return false;
+}
 
 export default {
   async fetch(req, env, ctx) {
     const cors = { 'Access-Control-Allow-Origin': ORIGEN, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
+    const resp = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
     if (req.method !== 'POST') return new Response('Avisos de Dana Nails funcionando 💅', { headers: cors });
-
     let d;
-    try { d = await req.json(); } catch { return new Response('datos', { status: 400, headers: cors }); }
-    if (!/^[A-Za-z0-9]{10,40}$/.test(d.id || '') || !['nueva', 'reprogramada'].includes(d.tipo))
-      return new Response('datos', { status: 400, headers: cors });
+    try { d = await req.json(); } catch { return resp({ error: 'datos' }, 400); }
+    try {
+      const tk = await tokenGoogle(env);
+      let titulo, cuerpo, marca = null;
 
-    // 1) La cita tiene que existir de verdad: se revisa en las horas ocupadas (no tienen nombres ni teléfonos)
-    const r = await fetch(FIRESTORE + d.id + '?key=' + API_KEY);
-    if (!r.ok) return new Response('no existe', { status: 404, headers: cors });
-    const f = (await r.json()).fields || {};
-    const fecha = f.fecha?.stringValue, inicio = Number(f.inicio?.integerValue);
-    if (!fecha || !Number.isFinite(inicio)) return new Response('no existe', { status: 404, headers: cors });
+      if (d.tipo === 'prueba') {
+        // solo Dana puede pedir una prueba: se revisa su sesión
+        const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${API_KEY}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: d.idToken || '' }) });
+        const j = await r.json();
+        if (j.users?.[0]?.localId !== DANA_UID) return resp({ error: 'Solo Dana puede enviar pruebas' }, 403);
+        titulo = '🔔 ¡Listo, Dana!'; cuerpo = 'Así te van a llegar los avisos de tus citas 💅';
+      } else {
+        if (!/^[A-Za-z0-9]{10,40}$/.test(d.id || '') || !['nueva', 'reprogramada', 'cancelada'].includes(d.tipo)) return resp({ error: 'datos' }, 400);
+        // los datos salen de la cita guardada en Firebase, no de lo que mande la página
+        const c = await leerCita(d.id, tk);
+        if (!c) return resp({ error: 'no existe' }, 404);
+        const real = d.tipo === 'cancelada' ? (c.estado === 'cancelada' && c.canceladaPor === 'clienta')
+          : (c.estado === 'pendiente' && c.creadaPor !== 'manicurista');
+        if (!real) return resp({ error: 'no coincide' }, 409);
+        marca = new Request(`https://avisos.dana-nails/${d.id}/${d.tipo}/${c.fecha}/${c.hora}`);
+        if (await caches.default.match(marca)) return resp({ enviados: 0, nota: 'ya avisado' });
+        const [y, m, dd] = c.fecha.split('-').map(Number), dia = new Date(y, m - 1, dd);
+        const [hh, mm] = c.hora.split(':').map(Number);
+        const cuando = `${DIAS[dia.getDay()]} ${dd} ${MESES[m - 1]} · ${hh % 12 || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'pm' : 'am'}`;
+        titulo = { nueva: '📲 Nueva cita', reprogramada: '🔄 Una clienta cambió su cita', cancelada: '💔 Cita cancelada' }[d.tipo];
+        cuerpo = `${c.nombre} · ${c.servicioNombre || 'Servicio'} · ${cuando}` +
+          (c.otroSistema && d.tipo !== 'cancelada' ? ' · viene con sistema de otro lado' : '');
+      }
 
-    // 2) No avisar dos veces la misma cita
-    const marca = new Request(`https://avisos.dana-nails/${d.id}/${d.tipo}/${fecha}/${inicio}`);
-    if (await caches.default.match(marca)) return new Response('ya avisado', { headers: cors });
+      const telefonos = await telefonosDana(tk);
+      let enviados = 0;
+      for (const t of telefonos) if (await enviarPush(tk, t, titulo, cuerpo)) enviados++;
 
-    // 3) El mensaje: día y hora salen de la base de datos; nombre y servicio los manda la app
-    const limpio = s => String(s || '').replace(/[\r\n*_~]+/g, ' ').trim().slice(0, 60);
-    const [y, m, dd] = fecha.split('-').map(Number), dia = new Date(y, m - 1, dd);
-    const hh = Math.floor(inicio / 60), mm = inicio % 60;
-    const hora = `${hh % 12 || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'pm' : 'am'}`;
-    const texto = [
-      d.tipo === 'nueva' ? '📲 *Nueva cita en Dana Nails*' : '🔄 *Una clienta cambió su cita*',
-      '',
-      `👤 ${limpio(d.nombre)}`,
-      `💅 ${limpio(d.servicio)}`,
-      `📅 ${DIAS[dia.getDay()]} ${dd} de ${MESES[m - 1]} · 🕐 ${hora}`,
-      ...(d.otroSistema ? ['✨ Viene con sistema de otro lado'] : []),
-      '',
-      'Confírmala en tu panel 💙'
-    ].join('\n');
-
-    const url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent('+' + env.TELEFONO) +
-      '&text=' + encodeURIComponent(texto) + '&apikey=' + encodeURIComponent(env.CALLMEBOT_KEY);
-    const envio = await fetch(url);
-    if (envio.ok) ctx.waitUntil(caches.default.put(marca, new Response('1', { headers: { 'Cache-Control': 'max-age=2592000' } })));
-    return new Response(envio.ok ? 'enviado' : 'error al enviar', { status: envio.ok ? 200 : 502, headers: cors });
+      // WhatsApp (opcional, si CallMeBot está configurado)
+      if (env.CALLMEBOT_KEY && env.TELEFONO && d.tipo !== 'prueba') {
+        const url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent('+' + env.TELEFONO) +
+          '&text=' + encodeURIComponent(`*${titulo}*\n${cuerpo}`) + '&apikey=' + encodeURIComponent(env.CALLMEBOT_KEY);
+        ctx.waitUntil(fetch(url).catch(() => {}));
+      }
+      if (marca && enviados) ctx.waitUntil(caches.default.put(marca, new Response('1', { headers: { 'Cache-Control': 'max-age=2592000' } })));
+      return resp({ enviados, telefonos: telefonos.length, error: telefonos.length ? undefined : 'Dana no ha activado las notificaciones en ningún teléfono' });
+    } catch (e) {
+      return resp({ error: String(e.message || e) }, 500);
+    }
   }
 };

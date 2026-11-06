@@ -185,6 +185,17 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .caja h3{font-weight:600;margin-bottom:6px}
 .caja p{color:var(--gris);font-size:.94rem}
 .caja .izq{text-align:left}
+.cal-ad{gap:5px}
+.dia-ad{aspect-ratio:1/1.15;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;border:1.5px solid var(--linea);border-radius:14px;background:#fff}
+.dia-ad b{font-weight:600;font-size:1rem}
+.dia-ad small{min-width:20px;height:18px;line-height:18px;padding:0 5px;border-radius:999px;background:var(--royal);color:#fff;font-size:.72rem;font-weight:600}
+.dia-ad small.pend{background:#e8961c}
+.dia-ad small.cero{background:none}
+.dia-ad.hoy{border-color:var(--royal)}
+.dia-ad.pasado{opacity:.5}
+.dia-ad.sel{background:var(--glitter) 0 0/160px,var(--royal);border-color:transparent;color:#fff;box-shadow:0 0 0 3px #fff,0 0 0 4.5px var(--royal)}
+.dia-ad.sel small{background:#fff;color:var(--royal)}
+.punto-pend{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e8961c;vertical-align:middle}
 .grupo-serv{font-size:.9rem;font-weight:600;color:var(--gris);margin:12px 0 0}
 .extra-pies{margin-top:14px;padding-top:4px;border-top:1px solid var(--linea)}
 .opciones-pies{display:grid;gap:8px;margin-top:4px}
@@ -234,11 +245,16 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 <div class="visor" id="visor" onclick="this.classList.remove('ver')"><img id="visorImg" alt="Foto de referencia"></div>
 <div class="modal" id="modalPrecio" role="dialog" aria-modal="true" aria-labelledby="mpTit">
   <div class="caja"><h3 id="mpTit">Confirmar cita</h3><p id="mpTxt"></p>
-    <label for="mpPrecio" class="izq">Precio (pesos colombianos)</label>
-    <input id="mpPrecio" type="text" inputmode="numeric" placeholder="Ej: 50.000" oninput="this.value=formatoCOP(this.value)" onkeydown="if(event.key==='Enter')confirmarConPrecio(true)">
-    <button class="boton" onclick="confirmarConPrecio(true)">Confirmar y enviar precio</button>
-    <button class="boton sec" onclick="confirmarConPrecio(false)">Confirmar sin precio</button>
-    <p class="sub" style="margin-top:10px">Se abre WhatsApp con el mensaje listo para enviárselo.</p>
+    <label for="mpDur" class="izq">Duración aproximada <span class="opc">(solo la ves tú)</span></label>
+    <select id="mpDur"></select>
+    <div id="mpConTel">
+      <label for="mpPrecio" class="izq">Precio (pesos colombianos)</label>
+      <input id="mpPrecio" type="text" inputmode="numeric" placeholder="Ej: 50.000" oninput="this.value=formatoCOP(this.value)" onkeydown="if(event.key==='Enter')confirmarConPrecio(true)">
+      <button class="boton" onclick="confirmarConPrecio(true)">Confirmar y enviar precio</button>
+      <button class="boton sec" onclick="confirmarConPrecio(false)">Confirmar sin precio</button>
+      <p class="sub" style="margin-top:10px">Se abre WhatsApp con el mensaje listo para enviárselo.</p>
+    </div>
+    <button class="boton" id="mpSinTel" onclick="confirmarConPrecio(false)">Confirmar</button>
     <button class="enlace" onclick="cerrarPrecio()">Volver</button>
   </div>
 </div>
@@ -247,6 +263,7 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script>
 // ================= Utilidades =================
 const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
@@ -301,7 +318,7 @@ function datosIniciales(){
   horario[0]={activo:true,desde:'12:00',hasta:'20:00'};                    // domingo: libre en la mañana
   const datos={
     config:{nombre:'Dana Nails',whatsapp:'04147149667',limiteHoras:24,intervalo:30,
-      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[],extraPies:60},
+      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[],extraPies:120},
     servicios:[
       // todos duran 2 h 30 min (las clientas no lo ven)
       {id:'s1',nombre:'Soft gel',duracion:150,tipo:'manos'},
@@ -343,15 +360,17 @@ const opcionesPies=()=>db.servicios.filter(x=>esPies(x)&&/cl[aá]sico|luxury/i.t
 function reserva(sId,piesId){
   const x=servicio(sId);if(!x)return null;
   const p=piesId&&piesId!=='no'?servicio(piesId):null;
-  return {nombre:x.nombre+(p?' + '+p.nombre:''),duracion:x.duracion+(p?(db.config.extraPies||60):0)};
+  return {nombre:x.nombre+(p?' + '+p.nombre:''),duracion:x.duracion+(p?(db.config.extraPies||120):0)};
 }
 // Actualiza datos guardados antes de existir manos/pies (agrega el tipo y "Pies clásico" una sola vez)
 function migrar(){
-  if((db.config.version||1)>=2)return false;
-  db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'});
-  if(!db.servicios.some(x=>/pies cl[aá]sico/i.test(x.nombre)))db.servicios.push({id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'});
-  if(db.config.extraPies==null)db.config.extraPies=60;
-  db.config.version=2;return true;
+  const v=db.config.version||1;if(v>=3)return false;
+  if(v<2){
+    db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'});
+    if(!db.servicios.some(x=>/pies cl[aá]sico/i.test(x.nombre)))db.servicios.push({id:'s9',nombre:'Pies clásico',duracion:150,tipo:'pies'});
+  }
+  if(db.config.extraPies==null||db.config.extraPies===60)db.config.extraPies=120; // agregar pies = 2 horas más
+  db.config.version=3;return true;
 }
 const durCita=c=>c.duracion||servicio(c.servicioId)?.duracion||150;
 const inicioCita=c=>deISO(c.fecha).getTime()+aMin(c.hora)*60000;
@@ -408,7 +427,7 @@ function iniciar(){
       auth.signInAnonymously().catch(e=>{console.error(e);ultimoError=explicar(e)+' (acceso Anónimo)';aviso('⚠️','No se pudo conectar',ultimoError);render()});return;
     }
     usuario=u;esAdmin=!u.isAnonymous;ultimoError='';
-    suscribir();
+    suscribir();if(esAdmin)renovarTelefono();
   });
 }
 function suscribir(){
@@ -430,8 +449,8 @@ function suscribir(){
     cargado.ocupado=true;refrescar();
   },errorLectura));
   // citas: Dana ve todas; cada clienta solo las suyas
-  const hace7=iso(new Date(Date.now()-7*864e5));
-  const q=esAdmin?fs.collection('citas').where('fecha','>=',hace7):fs.collection('citas').where('uid','==',usuario.uid);
+  const desde=iso(mesInicial()); // Dana: desde hace 2 meses, para poder ver meses anteriores
+  const q=esAdmin?fs.collection('citas').where('fecha','>=',desde):fs.collection('citas').where('uid','==',usuario.uid);
   let primera=true;
   desuscribir.push(q.onSnapshot(r=>{
     db.citas=r.docs.map(d=>Object.assign({id:d.id},d.data()));
@@ -503,7 +522,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,
+  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -668,12 +687,15 @@ async function agendar(){
   render();window.scrollTo({top:0,behavior:'smooth'});
 }
 
-// Aviso por WhatsApp a Dana (lo manda el Worker de Cloudflare con CallMeBot)
-const AVISOS_URL=''; // 👉 aquí va el enlace del Worker, ej: https://dana-nails-avisos.xxxx.workers.dev
+// ================= Avisos a Dana =================
+// Cuando una clienta agenda, cambia o cancela, el Worker de Cloudflare le manda a Dana
+// una notificación al teléfono (y WhatsApp si se configura CallMeBot).
+const AVISOS_URL=''; // 👉 enlace del Worker, ej: https://dana-nails-avisos.xxxx.workers.dev
+const VAPID_KEY='';  // 👉 clave de Firebase → Cloud Messaging → Certificados push web
 function notificarManicurista(c,tipo){
   if(FB){
-    if(AVISOS_URL&&tipo!=='cancelada')fetch(AVISOS_URL,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:c.id,tipo,nombre:c.nombre,servicio:nombreServ(c),otroSistema:!!c.otroSistema})}).catch(console.error);
+    if(AVISOS_URL)fetch(AVISOS_URL,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:c.id,tipo})}).catch(console.error); // el Worker lee los datos de la cita en Firebase
     return;
   }
   const t={nueva:'Nueva cita',cancelada:'Cita cancelada',reprogramada:'Cita cambiada'}[tipo];
@@ -744,6 +766,56 @@ async function entrar(){
     aviso('🔒','No se pudo entrar',malos?'Correo o contraseña incorrectos':e.code==='auth/too-many-requests'?'Demasiados intentos, espera un rato':explicar(e));
   }
 }
+// ----- Notificaciones en el teléfono de Dana -----
+const esIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent);
+const instalada=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const hayPush=()=>'serviceWorker' in navigator&&'Notification' in window&&!!(window.firebase&&firebase.messaging);
+const tokenGuardado=()=>{try{return localStorage.getItem('dn_notif')||''}catch(e){return ''}};
+async function registrarTelefono(){ // pide el código de este teléfono y lo guarda para que el Worker le escriba
+  const reg=await navigator.serviceWorker.register('sw.js');
+  const token=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
+  if(!token)throw new Error('sin token');
+  await fs.collection('tokens').doc(token).set({uid:usuario.uid,creado:Date.now(),equipo:navigator.userAgent.slice(0,140)});
+  try{localStorage.setItem('dn_notif',token)}catch(e){}
+  return token;
+}
+function vNotif(){
+  let estado,boton='';
+  if(!VAPID_KEY||!AVISOS_URL)estado='Todavía falta terminar de configurarlas.';
+  else if(esIOS()&&!instalada())estado='En iPhone primero agrega la app a la pantalla de inicio y ábrela desde el ícono. Luego entra aquí otra vez.';
+  else if(!hayPush())estado='Este navegador no permite notificaciones. Prueba con Chrome en Android o con la app instalada en iPhone.';
+  else if(Notification.permission==='denied')estado='Las notificaciones están bloqueadas. Actívalas en los ajustes del teléfono para esta app y vuelve a intentar.';
+  else if(Notification.permission==='granted'&&tokenGuardado()){
+    estado='✅ Activadas en este teléfono. Te llega un aviso cuando una clienta agenda, cambia o cancela una cita.';
+    boton='<button class="mini az" onclick="probarNotif()">Enviar una prueba</button>';
+  }else{
+    estado='Actívalas para que los avisos te lleguen a la pantalla de notificaciones del teléfono, aunque la app esté cerrada.';
+    boton='<button class="boton" onclick="activarNotif()">🔔 Activar notificaciones</button>';
+  }
+  return `<section class="tarjeta"><div class="paso">🔔 Notificaciones</div><p class="sub">${estado}</p>${boton}</section>`;
+}
+async function activarNotif(){
+  try{
+    const permiso=await Notification.requestPermission();
+    if(permiso!=='granted'){aviso('🔕','No se activaron','Toca "Permitir" cuando el teléfono pregunte');render();return}
+    await registrarTelefono();render();
+    aviso('🔔','¡Notificaciones activadas!','Toca "Enviar una prueba" para ver cómo llegan');
+  }catch(e){console.error(e);aviso('🔔','No se pudieron activar',explicar(e))}
+}
+async function probarNotif(){
+  try{
+    const r=await fetch(AVISOS_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tipo:'prueba',idToken:await auth.currentUser.getIdToken()})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j.enviados>0)aviso('📲','Prueba enviada','Revisa la pantalla de notificaciones');
+    else aviso('🔔','No llegó la prueba',j.error||'Vuelve a activar las notificaciones');
+  }catch(e){console.error(e);aviso('🔔','No se pudo enviar la prueba','Revisa tu conexión')}
+}
+// si ya estaban activadas, se renueva el código del teléfono al entrar (por si cambió)
+function renovarTelefono(){
+  if(VAPID_KEY&&hayPush()&&Notification.permission==='granted'&&tokenGuardado()&&!(esIOS()&&!instalada()))registrarTelefono().catch(console.error);
+}
+
 // ----- Contraseña de Dana -----
 async function cambiarClave(){
   const {a,n,r}=ui.cc;
@@ -790,23 +862,40 @@ function vAgenda(){
   const pend=db.citas.filter(c=>c.estado==='pendiente'&&finCita(c)>=ahora).sort(orden);
   let h=vNuevaCita();
   if(pend.length)h+=`<section class="tarjeta"><div class="paso">⏳ Por confirmar <span class="contador">${pend.length}</span></div>${pend.map(c=>tarjetaCita(c,true)).join('')}</section>`;
-  const dias=[],d0=deISO(hoyISO());
-  for(let i=0;i<14;i++){const d=new Date(d0);d.setDate(d0.getDate()+i);dias.push(iso(d))}
   const delDia=db.citas.filter(c=>c.fecha===ui.adminFecha).sort(orden);
   h+=`<section class="tarjeta"><div class="paso">📅 Agenda</div>
-    <div class="tira">${dias.map(f=>{const d=deISO(f),hay=db.citas.some(c=>c.fecha===f&&c.estado!=='cancelada');
-      return `<button class="${f===ui.adminFecha?'sel':''}" onclick="ui.adminFecha='${f}';render()"><small>${DIAS[d.getDay()].slice(0,3)}</small><b>${d.getDate()}</b>${hay?'<i></i>':''}</button>`}).join('')}</div>
-    <p class="dia-titulo">${cap(fechaLarga(ui.adminFecha))}</p>
+    ${vMesAdmin()}
+    <p class="dia-titulo" id="diaSel">${cap(fechaLarga(ui.adminFecha))}</p>
     ${delDia.length?delDia.map(c=>tarjetaCita(c,false)).join(''):'<p class="vacio">No hay citas este día ✨</p>'}</section>`;
   return h;
 }
+
+// ----- Calendario del mes: cuántas citas hay cada día; al tocar un día se ven abajo -----
+const mesInicial=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth()-2,1)}; // lo más viejo que se carga
+function vMesAdmin(){
+  if(!ui.adminMes){const d=deISO(ui.adminFecha);ui.adminMes=new Date(d.getFullYear(),d.getMonth(),1)}
+  const y=ui.adminMes.getFullYear(),m=ui.adminMes.getMonth(),hoy=hoyISO(),d0=new Date();
+  const atras=new Date(y,m,1)>mesInicial(),adelante=new Date(y,m+1,1)<=new Date(d0.getFullYear(),d0.getMonth()+4,1);
+  const porDia={};db.citas.forEach(c=>{if(c.estado!=='cancelada')(porDia[c.fecha]=porDia[c.fecha]||[]).push(c)});
+  let celdas=['L','M','M','J','V','S','D'].map(x=>`<div class="dsem">${x}</div>`).join('');
+  celdas+='<div></div>'.repeat((new Date(y,m,1).getDay()+6)%7);
+  for(let d=1;d<=new Date(y,m+1,0).getDate();d++){
+    const f=iso(new Date(y,m,d)),l=porDia[f]||[],pend=l.some(c=>c.estado==='pendiente');
+    celdas+=`<button class="dia-ad${f===ui.adminFecha?' sel':''}${f===hoy?' hoy':''}${f<hoy?' pasado':''}" onclick="ui.adminFecha='${f}';render();bajar('diaSel')" aria-label="${fechaLarga(f)}: ${l.length} citas"><b>${d}</b><small class="${l.length?(pend?'pend':''):'cero'}">${l.length||''}</small></button>`;
+  }
+  return `<div class="cal-cab"><button class="icono" onclick="moverMes(-1)" ${atras?'':'disabled'} aria-label="Mes anterior">‹</button>
+    <b>${MESES[m]} ${y}</b><button class="icono" onclick="moverMes(1)" ${adelante?'':'disabled'} aria-label="Mes siguiente">›</button></div>
+    <div class="cal cal-ad">${celdas}</div>
+    <p class="leyenda">El número es cuántas citas hay ese día. <span class="punto-pend"></span> = tiene citas por confirmar</p>`;
+}
+function moverMes(n){const b=ui.adminMes;ui.adminMes=new Date(b.getFullYear(),b.getMonth()+n,1);render()}
 
 // ----- Dana agenda una cita ella misma (clientas que le escriben directo) -----
 function vNuevaCita(){
   const n=ui.nueva;
   if(!n)return `<button class="boton" style="margin:0 0 16px" onclick="abrirNueva()">＋ Agendar una cita</button>`;
-  const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies);
-  const libres=s&&n.fecha?horasLibres(n.fecha,R.duracion):[];
+  const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),D=n.dur||R?.duracion||150;
+  const libres=s&&n.fecha?horasLibres(n.fecha,D):[];
   if(!libres.includes(n.hora))n.hora=libres[0]||'';
   const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
   return `<section class="tarjeta" id="nueva"><div class="paso">💅 Nueva cita</div>
@@ -817,8 +906,9 @@ function vNuevaCita(){
     <input id="nTel" type="tel" inputmode="tel" value="${esc(n.tel)}" oninput="ui.nueva.tel=this.value" placeholder="Ej: 0414 123 4567">
     <div style="margin-top:14px"><label class="sw"><input type="checkbox" ${n.otroSistema?'checked':''} onchange="ui.nueva.otroSistema=this.checked"><span>Viene con sistema de otra manicurista</span></label></div>
     <label for="nServ">Servicio</label>
-    <select id="nServ" onchange="ui.nueva.servicioId=this.value;ui.nueva.pies='no';render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
-    ${s&&!esPies(s)&&opcionesPies().length?`<label for="nPies">Agregar pies</label><select id="nPies" onchange="ui.nueva.pies=this.value;render()">${[['no','No'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<option value="${v}"${(n.pies||'no')===v?' selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
+    <select id="nServ" onchange="ui.nueva.servicioId=this.value;ui.nueva.pies='no';ui.nueva.dur=null;render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
+    ${s&&!esPies(s)&&opcionesPies().length?`<label for="nPies">Agregar pies</label><select id="nPies" onchange="ui.nueva.pies=this.value;ui.nueva.dur=null;render()">${[['no','No'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<option value="${v}"${(n.pies||'no')===v?' selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
+    <label for="nDur">Duración aproximada</label><select id="nDur" onchange="ui.nueva.dur=+this.value;render()">${opcionesDur(D)}</select>
     <div class="dos">
       <label>Día<input type="date" min="${hoy}" max="${iso(lim)}" value="${n.fecha}" onchange="ui.nueva.fecha=this.value;render()"></label>
       <label>Hora${libres.length
@@ -836,11 +926,11 @@ function abrirNueva(){
   render();bajar('nueva');
 }
 async function guardarNueva(){
-  const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),nombre=n.nombre.trim(),tel=normTel(n.tel);
+  const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),D=n.dur||R?.duracion||150,nombre=n.nombre.trim(),tel=normTel(n.tel);
   if(nombre.length<2){aviso('✍️','Falta el nombre de la clienta','');$('nNom').focus();return}
   if(tel&&tel.length<10){aviso('📱','Revisa el número','Debe tener al menos 10 dígitos, o déjalo vacío');$('nTel').focus();return}
-  if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,R.duracion).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
-  const c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:R.duracion,fecha:n.fecha,hora:n.hora,
+  if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,D).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
+  const c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:D,fecha:n.fecha,hora:n.hora,
     nombre,telefono:tel,foto:null,otroSistema:n.otroSistema,estado:'confirmada',creadaPor:'manicurista',creada:Date.now()};
   if(guardando)return;guardando=true;
   const ok=await intentar(()=>crearCita(c));guardando=false;if(!ok)return;
@@ -898,27 +988,37 @@ const msgConfirmacion=(c,precio)=>[
   ``,
   `¡Nos vemos pronto! ✨`
 ].join('\n');
+// opciones de duración: de 30 min a 6 h
+const opcionesDur=actual=>{const l=[];for(let m=30;m<=360;m+=30)l.push(m);if(!l.includes(actual))l.push(actual);
+  return l.sort((a,b)=>a-b).map(m=>`<option value="${m}"${m===actual?' selected':''}>${dur(m)}</option>`).join('')};
+// ¿con esa duración se cruza con otra cita o pasa la hora de cierre?
+function choca(fecha,hora,dura,ignorar){
+  const a=aMin(hora),b=a+dura,dia=db.config.horario[deISO(fecha).getDay()];
+  if(dia?.activo&&b>aMin(dia.hasta))return 'termina después de tu hora de cierre';
+  return ocupadosDe(fecha).some(o=>o.id!==ignorar&&a<o.fin&&b>o.inicio)?'se cruza con otra cita':'';
+}
 function confirmarCita(id){
   const c=db.citas.find(x=>x.id===id);if(!c)return;
-  if(!c.telefono){ // sin número no hay a quién escribirle
-    intentar(()=>cambiarCita(c,{estado:'confirmada'})).then(ok=>{if(!ok)return;render();
-      aviso('✅','Cita confirmada',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`)});
-    return;
-  }
   porConfirmar=id;
   $('mpTxt').textContent=`${c.nombre} · ${nombreServ(c)} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`;
+  $('mpDur').innerHTML=opcionesDur(durCita(c));
+  $('mpConTel').hidden=!c.telefono;$('mpSinTel').hidden=!!c.telefono; // sin número no hay a quién escribirle
   $('mpPrecio').value='';$('modalPrecio').classList.add('ver');
-  setTimeout(()=>$('mpPrecio').focus(),50);
 }
 function cerrarPrecio(){$('modalPrecio').classList.remove('ver');porConfirmar=null}
 function confirmarConPrecio(conPrecio){
   const c=db.citas.find(x=>x.id===porConfirmar);if(!c)return cerrarPrecio();
   const precio=conPrecio?formatoCOP($('mpPrecio').value):'';
   if(conPrecio&&!precio){aviso('💰','Escribe el precio','O toca "Confirmar sin precio"');$('mpPrecio').focus();return}
+  const dura=+$('mpDur').value,cambios={estado:'confirmada'};
+  if(dura&&dura!==durCita(c))cambios.duracion=dura;
+  const ojo=choca(c.fecha,c.hora,dura||durCita(c),c.id);
   // WhatsApp se abre primero: el teléfono solo lo permite justo al tocar el botón
-  window.open(waLink(c.telefono,msgConfirmacion(c,precio)),'_blank');
+  if(c.telefono)window.open(waLink(c.telefono,msgConfirmacion(c,precio)),'_blank');
   cerrarPrecio();
-  intentar(()=>cambiarCita(c,{estado:'confirmada'})).then(ok=>{if(ok){render();aviso('✅','Cita confirmada','Envíale el mensaje en WhatsApp')}});
+  intentar(()=>cambiarCita(c,cambios)).then(ok=>{if(!ok)return;render();
+    if(ojo)aviso('⚠️','Cita confirmada, pero ojo',`Con ${dur(dura)} ${ojo}`);
+    else aviso('✅','Cita confirmada',c.telefono?'Envíale el mensaje en WhatsApp':`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`)});
 }
 function cancelarAdmin(id){
   const c=db.citas.find(x=>x.id===id);if(!c)return;
@@ -988,8 +1088,9 @@ function vAjustes(){
       <button class="mini no" onclick="quitarServ(${i})">Eliminar</button></div>`).join('')}
     <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button>
     <label for="aExtra">Tiempo extra cuando agregan pies a un servicio de manos</label>
-    <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150].map(m=>`<option value="${m}"${m===(db.config.extraPies||60)?' selected':''}>${dur(m)}</option>`).join('')}</select>
+    <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===(db.config.extraPies||120)?' selected':''}>${dur(m)}</option>`).join('')}</select>
     <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «clásico» o «luxury».</p></section>
+  ${FB?vNotif():''}
   ${FB?`<section class="tarjeta" id="sesion"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
     ${ui.cc?`<label for="ccActual">Contraseña actual</label><div class="clave"><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">${botonOjo('ccActual')}</div>
       <label for="ccNueva">Nueva contraseña</label><div class="clave"><input id="ccNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" value="${esc(ui.cc.n)}" oninput="ui.cc.n=this.value">${botonOjo('ccNueva')}</div>
