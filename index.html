@@ -201,6 +201,20 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .dia-ad.sel small{background:#fff;color:var(--royal)}
 .punto-pend{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e8961c;vertical-align:middle}
 .grupo-serv{font-size:.9rem;font-weight:600;color:var(--gris);margin:12px 0 0}
+/* políticas del studio */
+.politicas{display:grid;gap:12px;text-align:left}
+.politica{display:flex;gap:10px}
+.politica .num{width:26px;height:26px;font-size:.8rem;margin-top:1px;background:var(--glitter) 0 0/120px,var(--royal);border-color:transparent;color:#fff}
+.politica b{display:block;font-weight:600;font-size:.95rem}
+.politica ul,.resumen .politica ul{display:block;list-style:disc;margin:2px 0 0 18px;padding:0;gap:0;color:var(--gris);font-size:.9rem;font-weight:400;line-height:1.4}
+.caja-pol{margin:14px 0 4px;padding:14px;border-radius:16px;background:#f6f8ff;border:1.5px solid var(--linea)}
+.caja-pol .tit{font-weight:600;margin-bottom:2px}
+.acepto{display:flex;align-items:flex-start;gap:10px;margin:14px 0 4px;font-weight:500;cursor:pointer}
+.acepto input{width:22px;height:22px;flex:0 0 auto;margin-top:1px;accent-color:var(--royal)}
+.ojo-sis{margin-top:10px;padding:10px 12px;border-radius:12px;background:#fff6e6;border:1.5px solid #f6d9a6;font-size:.9rem}
+.caja.larga{max-height:calc(100vh - 32px);overflow:auto;text-align:left}
+.caja.larga h3{text-align:center}
+textarea{width:100%;padding:10px 12px;border:1.5px solid var(--linea);border-radius:14px;background:#fff;font:inherit;font-size:.92rem;color:var(--tinta);resize:vertical;margin-top:8px}
 .extra-pies{margin-top:14px;padding-top:4px;border-top:1px solid var(--linea)}
 .opciones-pies{display:grid;gap:8px;margin-top:4px}
 .opciones-pies .hora{padding:11px 14px}
@@ -235,6 +249,7 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
   <main id="main"></main>
 
   <footer class="pie" id="pie">
+    <button class="mini az" onclick="verPoliticas()" style="margin-bottom:12px">📋 Políticas del studio</button><br>
     <button class="enlace" onclick="irA('admin')">Acceso manicurista 🔒</button>
     <p class="sub" id="modoTxt"></p>
   </footer>
@@ -247,6 +262,10 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
     <div class="dos-b"><button class="boton sec" onclick="cerrarModal(false)">Volver</button><button class="boton peligro" id="mOk" onclick="cerrarModal(true)">Sí</button></div>
   </div>
 </div>
+<div class="modal" id="modalPol" role="dialog" aria-modal="true" aria-labelledby="polTit" onclick="if(event.target===this)this.classList.remove('ver')">
+  <div class="caja larga"><h3 id="polTit">📋 Políticas del studio</h3><div id="polLista"></div>
+    <button class="boton" style="margin-top:16px" onclick="$('modalPol').classList.remove('ver')">Entendido 💙</button></div>
+</div>
 <div class="visor" id="visor" onclick="this.classList.remove('ver')"><img id="visorImg" alt="Foto de referencia"></div>
 <div class="modal" id="modalPrecio" role="dialog" aria-modal="true" aria-labelledby="mpTit">
   <div class="caja"><h3 id="mpTit">Confirmar cita</h3><p id="mpTxt"></p>
@@ -257,6 +276,7 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
       <input id="mpPrecio" type="text" inputmode="numeric" placeholder="Ej: 50.000" oninput="this.value=formatoCOP(this.value)" onkeydown="if(event.key==='Enter')confirmarConPrecio(true)">
       <button class="boton" onclick="confirmarConPrecio(true)">Confirmar y enviar precio</button>
       <button class="boton sec" onclick="confirmarConPrecio(false)">Confirmar sin precio</button>
+      <label class="sw" style="margin-top:14px"><input type="checkbox" id="mpPol" checked><span>Enviar también las políticas</span></label>
       <p class="sub" style="margin-top:10px">Se abre WhatsApp con el mensaje listo para enviárselo.</p>
     </div>
     <button class="boton" id="mpSinTel" onclick="confirmarConPrecio(false)">Confirmar</button>
@@ -377,6 +397,26 @@ function migrar(){
   if(db.config.extraPies==null||db.config.extraPies===60)db.config.extraPies=120; // agregar pies = 2 horas más
   db.config.version=3;return true;
 }
+// ----- Políticas del studio (Dana las puede editar en Ajustes) -----
+const POLITICAS_BASE=[
+  {titulo:'Tiempo del servicio',puntos:['Nuestros servicios duran aprox. 2 horas.','Te pedimos DISPONER de este tiempo.','No trabajamos apuradas para asegurar calidad.']},
+  {titulo:'Puntualidad',puntos:['Tolerancia máxima de 10 a 15 minutos.','Pasado ese tiempo, la cita puede cancelarse por respeto a otras clientas.']},
+  {titulo:'Retiro de producto',puntos:['Cobramos retiros de otro salón.','Semipermanente: 20 mil pesos.','Sistema completo: 30 mil pesos.']},
+  {titulo:'Uñas caídas',puntos:['Cada uña caída o rota que necesite reparación tiene un costo adicional según el sistema.']},
+  {titulo:'Trabajos externos',puntos:['No realizamos mantenimientos ni retoques sobre sistemas de uñas aplicados en otros salones.']},
+  {titulo:'Garantía y salud',puntos:['Garantía de arreglos por desperfectos (3-5 días).','NO aplica por mal uso o golpes.','NO atendemos uñas con hongos o infecciones activas.']}
+];
+const politicas=()=>(db.config.politicas||POLITICAS_BASE).filter(p=>p.titulo||p.puntos?.length);
+const htmlPoliticas=()=>`<div class="politicas">${politicas().map((p,i)=>`<div class="politica"><span class="num">${i+1}</span><div>
+  <b>${esc(p.titulo)}</b>${p.puntos?.length?`<ul>${p.puntos.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div></div>`).join('')}</div>`;
+const textoPoliticas=()=>['📋 *Políticas del studio*','Para garantizarte la mejor atención, por favor lee nuestras normas:',
+  ...politicas().flatMap((p,i)=>['',`*${i+1}. ${p.titulo}*`,...(p.puntos||[]).map(x=>'• '+x)]),
+  '','¡Gracias por elegirnos y respetar nuestras políticas! 💙'].join('\n');
+function verPoliticas(){
+  $('polLista').innerHTML=`<p class="sub" style="margin-bottom:14px;text-align:center">Para garantizarte la mejor atención, por favor lee nuestras normas:</p>${htmlPoliticas()}`;
+  $('modalPol').classList.add('ver');
+}
+
 const durCita=c=>c.duracion||servicio(c.servicioId)?.duracion||150;
 const inicioCita=c=>deISO(c.fecha).getTime()+aMin(c.hora)*60000;
 const finCita=c=>inicioCita(c)+durCita(c)*60000;
@@ -527,7 +567,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,
+  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,acepta:false,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -586,6 +626,7 @@ function vReservar(){
       <label>¿Vienes con sistema puesto por otra manicurista?</label>
       <p class="sub" style="margin-top:0">Por ejemplo, acrílico, gel o polygel que te hicieron en otro lado.</p>
       <div class="sino">${[[true,'Sí'],[false,'No']].map(([v,t])=>`<button class="hora${ui.otroSistema===v?' sel':''}" onclick="ui.otroSistema=${v};render()">${t}</button>`).join('')}</div>
+      ${ui.otroSistema?'<p class="ojo-sis">💡 Se cobra el retiro de productos de otro salón, y no hacemos mantenimientos ni retoques sobre sistemas de otros salones. Mira los precios en las políticas, abajo 👇</p>':''}
       <label>Foto del diseño que quieres <span class="opc">(opcional)</span></label>
       <label class="foto">${ui.foto?`<img src="${ui.foto}" alt="Tu diseño de referencia">`:'<span>📷 Subir foto de referencia</span>'}
         <input type="file" accept="image/*" onchange="cargarFoto(this)" hidden></label>
@@ -594,6 +635,9 @@ function vReservar(){
   }
   h+=`<section class="tarjeta resumen" id="p5"><div class="paso"><span class="num">${n}</span>Confirma tu cita</div>
     <ul><li>💅 ${esc(R.nombre)}</li><li>📅 ${cap(fechaLarga(ui.fecha))}</li><li>🕐 ${hora12(ui.hora)}</li>${!rep&&ui.otroSistema?'<li>✨ Vengo con sistema de otro lado</li>':''}</ul>
+    ${rep?'':`<div class="caja-pol" id="pPol"><p class="tit">📋 Políticas del studio</p>
+      <p class="sub" style="margin:0 0 12px">Para garantizarte la mejor atención, por favor lee nuestras normas:</p>${htmlPoliticas()}</div>
+      <label class="acepto"><input type="checkbox" id="acepto" ${ui.acepta?'checked':''} onchange="ui.acepta=this.checked"><span>Leí y acepto las políticas del studio</span></label>`}
     <button class="boton" onclick="agendar()">${rep?'Guardar nuevo horario ✨':'Agendar mi cita ✨'}</button></section>`;
   return h;
 }
@@ -679,6 +723,7 @@ async function agendar(){
     if(nombre.length<2){aviso('✍️','Falta tu nombre','');$('nom').focus();return}
     if(tel.length<10){aviso('📱','Revisa tu número','Debe tener al menos 10 dígitos');$('tel').focus();return}
     if(ui.otroSistema===null){aviso('💅','Cuéntanos si vienes con sistema','Toca Sí o No');bajar('p4');return}
+    if(!ui.acepta){aviso('📋','Lee y acepta las políticas','Marca la casilla antes de agendar');bajar('pPol');return}
     // siempre queda pendiente: la confirma Dana (al confirmar envía el precio)
     c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:R.duracion,fecha:ui.fecha,hora:ui.hora,
       nombre,telefono:tel,foto:ui.foto||null,otroSistema:ui.otroSistema,estado:'pendiente',creada:Date.now()};
@@ -688,7 +733,7 @@ async function agendar(){
     notificarManicurista(c,'nueva');
     ui.hecho=c;
   }
-  ui.reprogramando=null;ui.servicioId=null;ui.pies=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;
+  ui.reprogramando=null;ui.servicioId=null;ui.pies=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;ui.acepta=false;
   render();window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -979,7 +1024,7 @@ function tarjetaCita(c,conFecha){
 let porConfirmar=null;
 // 50000 -> "50.000" (pesos colombianos, con punto de miles)
 const formatoCOP=v=>String(v).replace(/\D/g,'').replace(/^0+(?=\d)/,'').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
-const msgConfirmacion=(c,precio)=>[
+const msgConfirmacion=(c,precio,conPol)=>[
   `¡Hola, ${c.nombre.trim().split(' ')[0]}! 💙✨`,
   ``,
   `Tu cita en *${db.config.nombre}* quedó confirmada 🥳`,
@@ -992,7 +1037,8 @@ const msgConfirmacion=(c,precio)=>[
   `Te espero para consentirte y dejar tus uñas hermosas 🥰`,
   `Si te surge algún inconveniente, avísame por aquí con tiempo 🙏`,
   ``,
-  `¡Nos vemos pronto! ✨`
+  `¡Nos vemos pronto! ✨`,
+  ...(conPol?['','',textoPoliticas()]:[])
 ].join('\n');
 // opciones de duración: de 30 min a 6 h
 const opcionesDur=actual=>{const l=[];for(let m=30;m<=360;m+=30)l.push(m);if(!l.includes(actual))l.push(actual);
@@ -1009,7 +1055,7 @@ function confirmarCita(id){
   $('mpTxt').textContent=`${c.nombre} · ${nombreServ(c)} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`;
   $('mpDur').innerHTML=opcionesDur(durCita(c));
   $('mpConTel').hidden=!c.telefono;$('mpSinTel').hidden=!!c.telefono; // sin número no hay a quién escribirle
-  $('mpPrecio').value='';$('modalPrecio').classList.add('ver');
+  $('mpPrecio').value='';$('mpPol').checked=true;$('modalPrecio').classList.add('ver');
 }
 function cerrarPrecio(){$('modalPrecio').classList.remove('ver');porConfirmar=null}
 function confirmarConPrecio(conPrecio){
@@ -1020,7 +1066,7 @@ function confirmarConPrecio(conPrecio){
   if(dura&&dura!==durCita(c))cambios.duracion=dura;
   const ojo=choca(c.fecha,c.hora,dura||durCita(c),c.id);
   // WhatsApp se abre primero: el teléfono solo lo permite justo al tocar el botón
-  if(c.telefono)window.open(waLink(c.telefono,msgConfirmacion(c,precio)),'_blank');
+  if(c.telefono)window.open(waLink(c.telefono,msgConfirmacion(c,precio,$('mpPol').checked)),'_blank');
   cerrarPrecio();
   intentar(()=>cambiarCita(c,cambios)).then(ok=>{if(!ok)return;render();
     if(ojo)aviso('⚠️','Cita confirmada, pero ojo',`Con ${dur(dura)} ${ojo}`);
@@ -1096,6 +1142,13 @@ function vAjustes(){
     <label for="aExtra">Tiempo extra cuando agregan pies a un servicio de manos</label>
     <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===(db.config.extraPies||120)?' selected':''}>${dur(m)}</option>`).join('')}</select>
     <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «clásico» o «luxury».</p></section>
+  <section class="tarjeta" id="aPol"><div class="paso">📋 Políticas</div>
+    <p class="sub" style="margin-bottom:10px">Las clientas las leen y aceptan antes de agendar, y puedes enviarlas en el mensaje de confirmación. Escribe un punto por línea.</p>
+    ${(db.config.politicas||POLITICAS_BASE).map((p,i)=>`<div class="serv-edit"><input value="${esc(p.titulo)}" aria-label="Título de la política ${i+1}" onchange="setPol(${i},'titulo',this.value)">
+      <textarea rows="${Math.max(2,(p.puntos||[]).reduce((n,x)=>n+Math.ceil(x.length/34),0)+1)}" aria-label="Puntos de la política ${i+1}" onchange="setPol(${i},'puntos',this.value)">${esc((p.puntos||[]).join('\n'))}</textarea>
+      <button class="mini no" onclick="quitarPol(${i})">Eliminar</button></div>`).join('')}
+    <button class="boton sec" onclick="agregarPol()">+ Agregar política</button>
+    <button class="mini az" style="margin-top:12px" onclick="verPoliticas()">👀 Ver cómo las ven las clientas</button></section>
   ${FB?vNotif():''}
   ${FB?`<section class="tarjeta" id="sesion"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
     ${ui.cc?`<label for="ccActual">Contraseña actual</label><div class="clave"><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">${botonOjo('ccActual')}</div>
@@ -1113,6 +1166,17 @@ function setServ(i,k,v){
   db.servicios[i][k]=v;intentar(guardarConfig).then(ok=>{if(!ok)return;aviso('💾','Servicio guardado','');if(k==='tipo')render()});
 }
 async function agregarServ(){db.servicios.push({id:'s'+Date.now().toString(36),nombre:'Nuevo servicio',duracion:150,tipo:'manos'});if(await intentar(guardarConfig))render()}
+// políticas: se copian a la configuración la primera vez que Dana cambia algo
+const misPoliticas=()=>(db.config.politicas||=JSON.parse(JSON.stringify(POLITICAS_BASE)));
+function setPol(i,k,v){
+  const p=misPoliticas()[i];if(!p)return;
+  if(k==='titulo'){v=v.trim();if(!v){render();return}p.titulo=v}
+  else p.puntos=v.split('\n').map(x=>x.trim()).filter(Boolean);
+  intentar(guardarConfig).then(ok=>{if(ok)aviso('💾','Política guardada','')});
+}
+async function agregarPol(){misPoliticas().push({titulo:'Nueva política',puntos:[]});if(await intentar(guardarConfig)){render();bajar('aPol')}}
+function quitarPol(i){const p=misPoliticas()[i];if(!p)return;
+  confirmar('¿Eliminar esta política?',p.titulo,'Sí, eliminar',async()=>{misPoliticas().splice(i,1);if(await intentar(guardarConfig))render()})}
 function quitarServ(i){confirmar('¿Eliminar este servicio?',db.servicios[i].nombre,'Sí, eliminar',async()=>{db.servicios.splice(i,1);if(await intentar(guardarConfig))render()})}
 function reiniciar(){confirmar('¿Reiniciar datos?','Se borran las citas y ajustes, y vuelven los de ejemplo.','Sí, reiniciar',()=>{db=Object.assign(datosIniciales(),{ocupado:[]});guardarLocal();render();aviso('✨','Listo','Datos de ejemplo restaurados')})}
 
@@ -1192,7 +1256,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06b'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06c'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
