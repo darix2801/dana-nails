@@ -24,6 +24,9 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const link = (e.notification.data && e.notification.data.link) || APP;
   e.waitUntil((async () => {
+    // se guarda también aquí: en iPhone la app a veces se abre sin el link de la notificación,
+    // y la página lo lee de este lugar al abrir
+    try { await (await caches.open('dn-aviso')).put(APP + '__aviso', new Response(JSON.stringify({ link, t: Date.now() }))); } catch (err) {}
     const lista = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const c = lista.find(x => x.url.startsWith(APP)) || lista[0];
     if (c) {
@@ -31,6 +34,6 @@ self.addEventListener('notificationclick', e => {
       c.postMessage({ tipo: 'aviso-dana', url: link });
       return;
     }
-    await self.clients.openWindow(link);
+    await self.clients.openWindow(APP);
   })());
 });

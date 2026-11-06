@@ -289,6 +289,17 @@ textarea{width:100%;padding:10px 12px;border:1.5px solid var(--linea);border-rad
   </div>
 </div>
 
+<script>
+// Si algo falla al abrir, se muestra el error en vez de dejar la pantalla en blanco
+window.__fallos=[];
+function __mostrarFallo(m){
+  try{window.__fallos.push(String(m));const main=document.getElementById('main');
+    if(main&&!main.textContent.trim())main.innerHTML='<p class="vacio">⚠️ Algo falló al abrir la página.<br><small>'+String(m).replace(/[<>&]/g,'')+'</small><br><br><button class="boton" onclick="location.reload()">Volver a cargar</button></p>';
+  }catch(e){}
+}
+window.addEventListener('error',e=>__mostrarFallo(e.message||'error'));
+window.addEventListener('unhandledrejection',e=>__mostrarFallo((e.reason&&e.reason.message)||e.reason||'error'));
+</script>
 <!-- Firebase (base de datos y sesión). Si no carga, la app funciona en modo prueba -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -788,10 +799,23 @@ function mostrarAvisoAbierto(){
 if(leerAviso(location.href))history.replaceState(null,'',location.pathname); // se quita del link para que no salga otra vez
 // si la app ya estaba abierta, el service worker le pasa la notificación que se tocó
 try{navigator.serviceWorker.addEventListener('message',e=>{
-  if(e.data?.tipo==='aviso-dana'&&leerAviso(e.data.url)){render();mostrarAvisoAbierto()}
+  if(e.data?.tipo==='aviso-dana'&&leerAviso(e.data.url)){borrarAvisoGuardado();render();mostrarAvisoAbierto()}
 })}catch(e){} // navegador sin service worker
-// al volver a la app se vuelve a dibujar (evita que quede en blanco)
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refrescar()});
+// en iPhone la app a veces abre sin el link: el service worker deja guardada la notificación tocada
+const LLAVE_AVISO=new URL('__aviso',location.href).href;
+function borrarAvisoGuardado(){try{caches.open('dn-aviso').then(c=>c.delete(LLAVE_AVISO)).catch(()=>{})}catch(e){}}
+async function avisoGuardado(){
+  try{
+    const cache=await caches.open('dn-aviso'),r=await cache.match(LLAVE_AVISO);if(!r)return;
+    await cache.delete(LLAVE_AVISO);
+    const {link,t}=JSON.parse(await r.text());
+    if(Date.now()-t<10*60000&&leerAviso(link)){render();mostrarAvisoAbierto()} // solo si se tocó hace poco
+  }catch(e){}
+}
+avisoGuardado();
+// al volver a la app se vuelve a dibujar (evita que quede en blanco) y se revisa si se tocó una notificación
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){refrescar();avisoGuardado()}});
+window.addEventListener('pageshow',e=>{if(e.persisted){refrescar();avisoGuardado()}});
 
 // Qué pasó con la cita, en palabras (para los avisos de Dana)
 const cuandoLargo=(f,h)=>`${fechaLarga(f)} a las ${hora12(h)}`;
@@ -1307,7 +1331,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06e'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06f'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
