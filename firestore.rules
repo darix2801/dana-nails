@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // UID de Dana (Authentication → Usuarios)
+    function esDana() {
+      return request.auth != null && request.auth.uid == 'g9fF6IX7VhN78bwys1VfyGcCRDd2';
+    }
+    function conSesion() {
+      return request.auth != null;
+    }
+
+    // Horario, servicios y bloqueos: todas los ven, solo Dana los cambia
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if esDana();
+    }
+
+    // Horas ocupadas: solo fecha y hora, sin nombres ni teléfonos
+    match /ocupado/{id} {
+      allow read: if true;
+      allow create, update: if esDana() || (
+        conSesion()
+        && getAfter(/databases/$(database)/documents/citas/$(id)).data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['fecha', 'inicio', 'fin'])
+        && request.resource.data.fecha is string
+        && request.resource.data.inicio is int
+        && request.resource.data.fin is int
+      );
+      allow delete: if esDana() || (
+        conSesion()
+        && get(/databases/$(database)/documents/citas/$(id)).data.uid == request.auth.uid
+      );
+    }
+
+    // Citas con datos personales: solo las ven Dana y la clienta que la agendó
+    match /citas/{id} {
+      allow read: if esDana() || (conSesion() && resource.data.uid == request.auth.uid);
+
+      // La clienta agenda: siempre queda pendiente hasta que Dana la confirme
+      allow create: if esDana() || (
+        conSesion()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.estado == 'pendiente'
+        && request.resource.data.keys().hasOnly(['uid', 'servicioId', 'servicioNombre', 'duracion', 'fecha', 'hora',
+                                                 'nombre', 'telefono', 'foto', 'otroSistema', 'estado', 'creada'])
+        && request.resource.data.nombre is string && request.resource.data.nombre.size() <= 80
+        && request.resource.data.telefono is string && request.resource.data.telefono.size() <= 15
+        && (request.resource.data.get('foto', null) == null
+            || (request.resource.data.foto is string && request.resource.data.foto.size() < 600000))
+      );
+
+      // La clienta solo puede cambiar la fecha/hora o cancelar su propia cita (no confirmarla)
+      allow update: if esDana() || (
+        conSesion()
+        && resource.data.uid == request.auth.uid
+        && resource.data.estado != 'cancelada'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'canceladaPor', 'fecha', 'hora'])
+        && (request.resource.data.estado == 'pendiente'
+            || (request.resource.data.estado == 'cancelada' && request.resource.data.canceladaPor == 'clienta'))
+      );
+
+      allow delete: if esDana();
+    }
+  }
+}
