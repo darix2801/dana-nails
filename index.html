@@ -378,9 +378,9 @@ function iniciar(){
   setTimeout(()=>{if(!listo())aviso('📶','Sin conexión','Revisa tu internet; la app se actualiza sola al volver')},12000);
   auth.onAuthStateChanged(u=>{
     if(!u){ // cada clienta entra sin cuenta (sesión anónima) y solo ve sus propias citas
-      auth.signInAnonymously().catch(e=>{console.error(e);aviso('⚠️','No se pudo conectar','Intenta recargar la página')});return;
+      auth.signInAnonymously().catch(e=>{console.error(e);ultimoError=explicar(e)+' (acceso Anónimo)';aviso('⚠️','No se pudo conectar',ultimoError);render()});return;
     }
-    usuario=u;esAdmin=!u.isAnonymous;
+    usuario=u;esAdmin=!u.isAnonymous;ultimoError='';
     suscribir();
   });
 }
@@ -416,7 +416,18 @@ function suscribir(){
     primera=false;cargado.citas=true;refrescar();
   },errorLectura));
 }
-function errorLectura(e){console.error(e);aviso('⚠️','No se pudieron cargar los datos','Intenta recargar la página')}
+// Explica en palabras simples qué falla en Firebase, para saber qué arreglar
+let ultimoError='';
+function explicar(e){
+  const c=(e&&e.code)||'';
+  if(/permission-denied/.test(c))return 'Faltan publicar las reglas de seguridad en Firestore';
+  if(/operation-not-allowed|admin-restricted/.test(c))return 'Falta activar ese método de acceso en Firebase (Authentication → Método de acceso)';
+  if(/failed-precondition|not-found/.test(c))return 'La base de datos Firestore no está creada';
+  if(/network|unavailable/.test(c))return 'Sin conexión a internet';
+  if(/api-key|unauthorized-domain|referer/.test(c))return 'Este sitio no está autorizado en Firebase (Dominios autorizados)';
+  return 'Error: '+(c||(e&&e.message)||'desconocido');
+}
+function errorLectura(e){console.error(e);ultimoError=explicar(e);aviso('⚠️','No se pudieron cargar los datos',ultimoError);render()}
 // Vuelve a dibujar cuando llegan datos nuevos, sin cortar lo que se está escribiendo
 let refrescoPendiente=false;
 function refrescar(){
@@ -476,7 +487,8 @@ function render(){
   document.body.classList.toggle('modo-admin',admin);
   document.querySelector('.lema').textContent=admin?'Mi agenda':'Agenda tu cita';
   document.querySelectorAll('#tabsCliente button').forEach(b=>b.classList.toggle('activo',b.dataset.v===ui.vista));
-  if(!listo()){$('main').innerHTML='<p class="vacio">Cargando… ✨</p>';return}
+  if(admin&&!esAdmin&&FB){$('main').innerHTML=vLogin();return} // para entrar no hace falta esperar las citas
+  if(!listo()){$('main').innerHTML=`<p class="vacio">${ultimoError?'⚠️ No se pudo cargar: '+esc(ultimoError):'Cargando… ✨'}</p>`;return}
   $('main').innerHTML=admin?(esAdmin?vAdmin():vLogin()):ui.vista==='mis'?vMis():vReservar();
 }
 function irA(v){ui.vista=v;render();window.scrollTo({top:0,behavior:'smooth'})}
@@ -684,8 +696,8 @@ async function entrar(){
   if(!correo||!clave){aviso('🔒','Escribe tu correo y tu contraseña','');return}
   try{await auth.signInWithEmailAndPassword(correo,clave);aviso('💙','¡Hola, Dana!','')}
   catch(e){
-    const malos=/invalid|wrong-password|user-not-found|invalid-email/.test(e.code||'');
-    aviso('🔒','No se pudo entrar',malos?'Correo o contraseña incorrectos':e.code==='auth/too-many-requests'?'Demasiados intentos, espera un rato':'Revisa tu conexión');
+    const malos=/invalid-credential|invalid-login|wrong-password|user-not-found|invalid-email/.test(e.code||'');
+    aviso('🔒','No se pudo entrar',malos?'Correo o contraseña incorrectos':e.code==='auth/too-many-requests'?'Demasiados intentos, espera un rato':explicar(e));
   }
 }
 // ----- Contraseña de Dana -----
