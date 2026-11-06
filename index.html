@@ -898,7 +898,8 @@ const hayPush=()=>'serviceWorker' in navigator&&'Notification' in window&&!!(win
 let tokenMem=''; // por si el navegador no deja guardar
 const tokenGuardado=()=>{try{return localStorage.getItem('dn_notif')||tokenMem}catch(e){return tokenMem}};
 async function registrarTelefono(){ // pide el código de este teléfono y lo guarda para que el Worker le escriba
-  const reg=await navigator.serviceWorker.register('sw.js');
+  const reg=await navigator.serviceWorker.register('sw.js?v=5'); // al cambiar el número, el teléfono se actualiza sí o sí
+  reg.update().catch(()=>{});
   const token=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
   if(!token)throw new Error('sin token');
   await fs.collection('tokens').doc(token).set({uid:usuario.uid,creado:Date.now(),equipo:navigator.userAgent.slice(0,140)});
@@ -918,7 +919,8 @@ function vNotif(){
     estado='Actívalas para que los avisos te lleguen a la pantalla de notificaciones del teléfono, aunque la app esté cerrada.';
     boton='<button class="boton" onclick="activarNotif()">🔔 Activar notificaciones</button>';
   }
-  return `<section class="tarjeta"><div class="paso">🔔 Notificaciones</div><p class="sub">${estado}</p>${boton}</section>`;
+  return `<section class="tarjeta" id="notif"><div class="paso">🔔 Notificaciones</div><p class="sub">${estado}</p>${boton}
+    <button class="enlace" style="display:block;margin-top:12px" onclick="verRegistro()">Ver registro de avisos</button><div id="registroAvisos"></div></section>`;
 }
 async function activarNotif(){
   try{
@@ -936,6 +938,14 @@ async function probarNotif(){
     if(r.ok&&j.enviados>0)aviso('📲','Prueba enviada','Revisa la pantalla de notificaciones');
     else aviso('🔔','No llegó la prueba',j.error||'Vuelve a activar las notificaciones');
   }catch(e){console.error(e);aviso('🔔','No se pudo enviar la prueba','Revisa tu conexión')}
+}
+// Lo que anotó el service worker (para revisar si algo falla al tocar una notificación)
+async function verRegistro(){
+  let l=[],sw='ninguno';
+  try{sw=(navigator.serviceWorker.controller?.scriptURL||'').split('/').pop()||'sin control'}catch(e){}
+  try{const r=await (await caches.open('dn-registro')).match(new URL('__registro',location.href).href);if(r)l=await r.json()}catch(e){}
+  $('registroAvisos').innerHTML=`<div class="nota" style="margin-top:10px;font-size:.82rem;gap:4px;align-items:stretch">
+    <b>Servicio: ${esc(sw)} · Página: ${VERSION}</b>${l.length?l.slice().reverse().map(x=>`<div>${esc(x)}</div>`).join(''):'<div>Todavía no hay nada anotado.</div>'}</div>`;
 }
 // si ya estaban activadas, se renueva el código del teléfono al entrar (por si cambió)
 function renovarTelefono(){
@@ -1331,7 +1341,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06f'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06g'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
