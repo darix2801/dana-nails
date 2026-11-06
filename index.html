@@ -632,10 +632,14 @@ async function agendar(){
   render();window.scrollTo({top:0,behavior:'smooth'});
 }
 
+// Aviso por WhatsApp a Dana (lo manda el Worker de Cloudflare con CallMeBot)
+const AVISOS_URL=''; // 👉 aquí va el enlace del Worker, ej: https://dana-nails-avisos.xxxx.workers.dev
 function notificarManicurista(c,tipo){
-  // 🔜 Aquí se llamará al Cloudflare Worker (notificación push + WhatsApp con CallMeBot).
-  // Con Firebase, Dana ya ve las citas nuevas al instante en su panel.
-  if(FB)return;
+  if(FB){
+    if(AVISOS_URL&&tipo!=='cancelada')fetch(AVISOS_URL,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:c.id,tipo,nombre:c.nombre,servicio:nombreServ(c),otroSistema:!!c.otroSistema})}).catch(console.error);
+    return;
+  }
   const t={nueva:'Nueva cita',cancelada:'Cita cancelada',reprogramada:'Cita cambiada'}[tipo];
   setTimeout(()=>aviso('📲',t+' (simulación del aviso)',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)} · ${nombreServ(c)}${c.otroSistema?' · viene con sistema de otro lado':''}`),500);
 }
