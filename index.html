@@ -368,7 +368,7 @@ function datosIniciales(){
   horario[0]={activo:true,desde:'12:00',hasta:'20:00'};                    // domingo: libre en la mañana
   const datos={
     config:{nombre:'Dana Nails',whatsapp:'04147149667',limiteHoras:24,intervalo:30,
-      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[],extraPies:120},
+      horario,descanso:{activo:false,desde:'12:00',hasta:'13:00'},bloqueos:[],extraPies:120,extraSpa:30},
     servicios:[
       // todos duran 2 h 30 min (las clientas no lo ven)
       {id:'s1',nombre:'Soft gel',duracion:150,tipo:'manos'},
@@ -376,7 +376,6 @@ function datosIniciales(){
       {id:'s3',nombre:'Semipermanente',duracion:150,tipo:'manos'},
       {id:'s4',nombre:'Nivelación',duracion:150,tipo:'manos'},
       {id:'s5',nombre:'Kapping',duracion:150,tipo:'manos'},
-      {id:'s8',nombre:'Luxury spa manicura',duracion:150,tipo:'manos'},
       {id:'s6',nombre:'Pies semipermanente',duracion:150,tipo:'pies'},
       {id:'s7',nombre:'Luxury pedi spa',duracion:150,tipo:'pies'}],
     citas:[]
@@ -405,15 +404,19 @@ const nombreServ=c=>(c.servicioNombre||servicio(c.servicioId)?.nombre||'Servicio
 const esPies=x=>(x?.tipo||(/pie|pedi/i.test(x?.nombre||'')?'pies':'manos'))==='pies';
 // Pies que se pueden agregar a un servicio de manos
 const opcionesPies=()=>db.servicios.filter(x=>(esPies(x)||/pie|pedi/i.test(x.nombre))&&/semiperm|luxury/i.test(x.nombre)).sort((a,b)=>/semiperm/i.test(b.nombre)-/semiperm/i.test(a.nombre)); // semipermanente primero
-// Nombre y duración de la reserva: manos + pies si los agregó
-function reserva(sId,piesId){
+// El spa de manos ya no es un servicio aparte: se agrega a cualquier servicio de manos
+const SPA='Luxury spa manicura';
+const extraSpa=()=>db.config.extraSpa||30;
+// Nombre y duración de la reserva: manos + spa + pies, si los agregó
+function reserva(sId,piesId,spa){
   const x=servicio(sId);if(!x)return null;
-  const p=piesId&&piesId!=='no'?servicio(piesId):null;
-  return {nombre:x.nombre+(p?' + '+p.nombre:''),duracion:x.duracion+(p?(db.config.extraPies||120):0)};
+  const p=piesId&&piesId!=='no'?servicio(piesId):null,conSpa=!!spa&&!esPies(x);
+  return {nombre:x.nombre+(conSpa?' + '+SPA:'')+(p?' + '+p.nombre:''),
+    duracion:x.duracion+(conSpa?extraSpa():0)+(p?(db.config.extraPies||120):0)};
 }
 // Actualiza datos guardados con versiones anteriores de la app
 function migrar(){
-  const v=db.config.version||1;if(v>=4)return false;
+  const v=db.config.version||1;if(v>=5)return false;
   if(v<2)db.servicios.forEach(x=>{if(!x.tipo)x.tipo=/pie|pedi/i.test(x.nombre)?'pies':'manos'}); // manos o pies
   if(v<3&&(db.config.extraPies==null||db.config.extraPies===60))db.config.extraPies=120;       // agregar pies = 2 horas más
   // v4: "Pies clásico" no existe, el servicio se llama "Pies semipermanente"
@@ -422,7 +425,10 @@ function migrar(){
     if(db.servicios.some(x=>/pies semiperm/i.test(x.nombre)))db.servicios=db.servicios.filter(x=>!clasicos.includes(x));
     else{clasicos[0].nombre='Pies semipermanente';db.servicios=db.servicios.filter(x=>!clasicos.slice(1).includes(x))}
   }
-  db.config.version=4;return true;
+  // v5: "Luxury spa manicura" deja de ser un servicio: es algo que se agrega a los servicios de manos
+  db.servicios=db.servicios.filter(x=>!(/spa/i.test(x.nombre)&&/manicur/i.test(x.nombre)));
+  if(db.config.extraSpa==null)db.config.extraSpa=30;
+  db.config.version=5;return true;
 }
 // ----- Políticas del studio (Dana las puede editar en Ajustes) -----
 const POLITICAS_BASE=[
@@ -597,7 +603,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,cambio:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,acepta:false,
+  reprogramando:null,hecho:null,cambio:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,spa:null,lgCorreo:'',cc:null,acepta:false,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -621,8 +627,8 @@ function vReservar(){
   if(ui.hecho)return vHecho();
   const s=servicio(ui.servicioId);
   const rep=ui.reprogramando?db.citas.find(c=>c.id===ui.reprogramando):null;
-  const pidePies=!rep&&s&&!esPies(s)&&opcionesPies().length>0;
-  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies);
+  const pidePies=!rep&&s&&!esPies(s)&&opcionesPies().length>0,pideSpa=!rep&&s&&!esPies(s);
+  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies,ui.spa);
   let h='',n=1;
   if(rep){
     h+=`<div class="nota">🔄 Estás cambiando tu cita de <b>${esc(nombreServ(rep))}</b> del ${fechaLarga(rep.fecha)} a las ${hora12(rep.hora)}. Elige el nuevo día y hora.
@@ -634,10 +640,12 @@ function vReservar(){
       ${grupo('Manos 💅',db.servicios.filter(x=>!esPies(x)))}${grupo('Pies 🦶',db.servicios.filter(esPies))}
       ${pidePies?`<div class="extra-pies" id="pPies"><label>¿Quieres agregar pies?</label>
         <div class="opciones-pies">${[['no','No, gracias'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<button class="hora${ui.pies===v?' sel':''}" onclick="elegirPies('${v}')">${esc(t)}</button>`).join('')}</div></div>`:''}
+      ${pideSpa?`<div class="extra-pies" id="pSpa"><label>¿Quieres agregar el ${SPA}? 💆‍♀️</label>
+        <div class="opciones-pies">${[[false,'No, gracias'],[true,'Sí, agregar '+SPA]].map(([v,t])=>`<button class="hora${ui.spa===v?' sel':''}" onclick="elegirSpa(${v})">${esc(t)}</button>`).join('')}</div></div>`:''}
     </section>`;
   }
   if(!s)return h;
-  if(pidePies&&ui.pies==null)return h; // primero responde si quiere pies
+  if((pidePies&&ui.pies==null)||(pideSpa&&ui.spa==null))return h; // primero responde si quiere pies y spa
 
   h+=vCalendario(R.duracion,n++);
   if(!ui.fecha)return h;
@@ -701,13 +709,14 @@ function vHecho(){
 }
 
 function elegirServicio(id){
-  ui.servicioId=id;ui.pies=null;ui.fecha=null;ui.hora=null;
-  if(!esPies(servicio(id))&&opcionesPies().length){render();bajar('pPies');return} // servicio de manos: ¿agrega pies?
+  ui.servicioId=id;ui.pies=null;ui.spa=null;ui.fecha=null;ui.hora=null;
+  if(!esPies(servicio(id))){render();bajar(opcionesPies().length?'pPies':'pSpa');return} // servicio de manos: ¿agrega pies? ¿y spa?
   irAlCalendario();
 }
-function elegirPies(v){ui.pies=v;ui.fecha=null;ui.hora=null;irAlCalendario()}
+function elegirPies(v){ui.pies=v;ui.fecha=null;ui.hora=null;if(ui.spa==null){render();bajar('pSpa');return}irAlCalendario()}
+function elegirSpa(v){ui.spa=v;ui.fecha=null;ui.hora=null;if(ui.pies==null&&opcionesPies().length){render();bajar('pPies');return}irAlCalendario()}
 function irAlCalendario(){
-  const p=primerDiaLibre(reserva(ui.servicioId,ui.pies).duracion);
+  const p=primerDiaLibre(reserva(ui.servicioId,ui.pies,ui.spa).duracion);
   if(p){const d=deISO(p);ui.mes=new Date(d.getFullYear(),d.getMonth(),1)}
   render();bajar('p2');
 }
@@ -736,7 +745,7 @@ let guardando=false; // evita guardar dos veces si tocan rápido
 async function agendar(){
   if(guardando)return;
   const s=servicio(ui.servicioId),rep=ui.reprogramando?db.citas.find(x=>x.id===ui.reprogramando):null;
-  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies);
+  const R=rep?{nombre:nombreServ(rep),duracion:durCita(rep)}:reserva(ui.servicioId,ui.pies,ui.spa);
   if(!horasLibres(ui.fecha,R.duracion,ui.reprogramando).includes(ui.hora)){
     aviso('😕','Esa hora ya no está disponible','Elige otra, porfa');ui.hora=null;render();return;
   }
@@ -763,7 +772,7 @@ async function agendar(){
     notificarManicurista(c,'nueva');
     ui.hecho=c;
   }
-  ui.reprogramando=null;ui.servicioId=null;ui.pies=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;ui.acepta=false;
+  ui.reprogramando=null;ui.servicioId=null;ui.pies=null;ui.spa=null;ui.fecha=null;ui.hora=null;ui.foto=null;ui.otroSistema=null;ui.acepta=false;
   render();window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -1089,7 +1098,7 @@ const msgCambio=(c,antes)=>[
 function vNuevaCita(){
   const n=ui.nueva;
   if(!n)return `<button class="boton" style="margin:0 0 16px" onclick="abrirNueva()">＋ Agendar una cita</button>`;
-  const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),D=n.dur||R?.duracion||150;
+  const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies,n.spa),D=n.dur||R?.duracion||150;
   const libres=s&&n.fecha?horasLibres(n.fecha,D):[];
   if(!libres.includes(n.hora))n.hora=libres[0]||'';
   const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
@@ -1101,8 +1110,9 @@ function vNuevaCita(){
     <input id="nTel" type="tel" inputmode="tel" value="${esc(n.tel)}" oninput="ui.nueva.tel=this.value" placeholder="Ej: 0414 123 4567">
     <div style="margin-top:14px"><label class="sw"><input type="checkbox" ${n.otroSistema?'checked':''} onchange="ui.nueva.otroSistema=this.checked"><span>Viene con sistema de otra manicurista</span></label></div>
     <label for="nServ">Servicio</label>
-    <select id="nServ" onchange="ui.nueva.servicioId=this.value;ui.nueva.pies='no';ui.nueva.dur=null;render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
+    <select id="nServ" onchange="ui.nueva.servicioId=this.value;ui.nueva.pies='no';ui.nueva.spa=false;ui.nueva.dur=null;render()">${db.servicios.map(x=>`<option value="${x.id}"${x.id===n.servicioId?' selected':''}>${esc(x.nombre)}</option>`).join('')}</select>
     ${s&&!esPies(s)&&opcionesPies().length?`<label for="nPies">Agregar pies</label><select id="nPies" onchange="ui.nueva.pies=this.value;ui.nueva.dur=null;render()">${[['no','No'],...opcionesPies().map(p=>[p.id,p.nombre])].map(([v,t])=>`<option value="${v}"${(n.pies||'no')===v?' selected':''}>${esc(t)}</option>`).join('')}</select>`:''}
+    ${s&&!esPies(s)?`<label for="nSpa">Agregar ${SPA}</label><select id="nSpa" onchange="ui.nueva.spa=this.value==='si';ui.nueva.dur=null;render()"><option value="no">No</option><option value="si"${n.spa?' selected':''}>Sí</option></select>`:''}
     <label for="nDur">Duración aproximada</label><select id="nDur" onchange="ui.nueva.dur=+this.value;render()">${opcionesDur(D)}</select>
     <div class="dos">
       <label>Día<input type="date" min="${hoy}" max="${iso(lim)}" value="${n.fecha}" onchange="ui.nueva.fecha=this.value;render()"></label>
@@ -1118,11 +1128,11 @@ function abrirNueva(){
   const s0=db.servicios[0],d=s0?.duracion||150;
   // si el día que está viendo ya no tiene horas libres, se propone el próximo día libre
   const fecha=horasLibres(ui.adminFecha,d).length?ui.adminFecha:(primerDiaLibre(d)||ui.adminFecha);
-  ui.nueva={nombre:'',tel:'',otroSistema:false,servicioId:s0?.id,pies:'no',fecha,hora:''};
+  ui.nueva={nombre:'',tel:'',otroSistema:false,servicioId:s0?.id,pies:'no',spa:false,fecha,hora:''};
   render();bajar('nueva');
 }
 async function guardarNueva(){
-  const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies),D=n.dur||R?.duracion||150,nombre=n.nombre.trim(),tel=normTel(n.tel);
+  const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies,n.spa),D=n.dur||R?.duracion||150,nombre=n.nombre.trim(),tel=normTel(n.tel);
   if(nombre.length<2){aviso('✍️','Falta el nombre de la clienta','');$('nNom').focus();return}
   if(tel&&tel.length<10){aviso('📱','Revisa el número','Debe tener al menos 10 dígitos, o déjalo vacío');$('nTel').focus();return}
   if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,D).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
@@ -1307,7 +1317,10 @@ function vAjustes(){
     <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button>
     <label for="aExtra">Tiempo extra cuando agregan pies a un servicio de manos</label>
     <select id="aExtra" onchange="setCfg('extraPies',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===(db.config.extraPies||120)?' selected':''}>${dur(m)}</option>`).join('')}</select>
-    <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «semipermanente» o «luxury».</p></section>
+    <p class="sub">Las opciones de pies que se ofrecen son los servicios de pies que se llaman «semipermanente» o «luxury».</p>
+    <label for="aSpa">Tiempo extra cuando agregan ${SPA}</label>
+    <select id="aSpa" onchange="setCfg('extraSpa',+this.value)">${[15,30,45,60,90,120].map(m=>`<option value="${m}"${m===extraSpa()?' selected':''}>${dur(m)}</option>`).join('')}</select>
+    <p class="sub">Se le ofrece a la clienta en todos los servicios de manos.</p></section>
   <section class="tarjeta" id="aPol"><div class="paso">📋 Políticas</div>
     <p class="sub" style="margin-bottom:10px">Las clientas las leen y aceptan antes de agendar, y puedes enviarlas en el mensaje de confirmación. Escribe un punto por línea.</p>
     ${(db.config.politicas||POLITICAS_BASE).map((p,i)=>`<div class="serv-edit"><input value="${esc(p.titulo)}" aria-label="Título de la política ${i+1}" onchange="setPol(${i},'titulo',this.value)">
@@ -1422,7 +1435,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06k'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06l'; // cambiar este texto cada vez que se publique un cambio
 // El teléfono guarda una copia de la página: se pide la nueva sin usar esa copia y se recarga
 async function actualizarYa(){
   $('nuevaVersion').classList.remove('ver');
