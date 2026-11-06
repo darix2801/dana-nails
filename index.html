@@ -274,18 +274,18 @@ textarea{width:100%;padding:10px 12px;border:1.5px solid var(--linea);border-rad
 <div class="visor" id="visor" onclick="this.classList.remove('ver')"><img id="visorImg" alt="Foto de referencia"></div>
 <div class="modal" id="modalPrecio" role="dialog" aria-modal="true" aria-labelledby="mpTit">
   <div class="caja"><h3 id="mpTit">Confirmar cita</h3><p id="mpTxt"></p>
-    <label for="mpDur" class="izq">Duración aproximada <span class="opc">(solo la ves tú)</span></label>
-    <select id="mpDur"></select>
+    <div id="mpDurCaja"><label for="mpDur" class="izq">Duración aproximada <span class="opc">(solo la ves tú)</span></label>
+    <select id="mpDur"></select></div>
     <div id="mpConTel">
       <label for="mpPrecio" class="izq">Precio (pesos colombianos)</label>
       <input id="mpPrecio" type="text" inputmode="numeric" placeholder="Ej: 50.000" oninput="this.value=formatoCOP(this.value)" onkeydown="if(event.key==='Enter')confirmarConPrecio(true)">
-      <button class="boton" onclick="confirmarConPrecio(true)">Confirmar y enviar precio</button>
-      <button class="boton sec" onclick="confirmarConPrecio(false)">Confirmar sin precio</button>
+      <button class="boton" id="mpBtnCon" onclick="confirmarConPrecio(true)">Confirmar y enviar precio</button>
+      <button class="boton sec" id="mpBtnSin" onclick="confirmarConPrecio(false)">Confirmar sin precio</button>
       <label class="sw" style="margin-top:14px"><input type="checkbox" id="mpPol" checked><span>Enviar también las políticas</span></label>
       <p class="sub" style="margin-top:10px">Se abre WhatsApp con el mensaje listo para enviárselo.</p>
     </div>
     <button class="boton" id="mpSinTel" onclick="confirmarConPrecio(false)">Confirmar</button>
-    <button class="enlace" onclick="cerrarPrecio()">Volver</button>
+    <button class="enlace" id="mpVolver" onclick="cerrarPrecio()">Volver</button>
   </div>
 </div>
 
@@ -1038,7 +1038,7 @@ function vNuevaCita(){
     <p class="sub">Para clientas que te escriben directo. Queda confirmada de una vez.</p>
     <label for="nNom">Nombre de la clienta</label>
     <input id="nNom" value="${esc(n.nombre)}" oninput="ui.nueva.nombre=this.value" placeholder="Ej: María Pérez">
-    <label for="nTel">WhatsApp <span class="opc">(opcional, para recordarle)</span></label>
+    <label for="nTel">WhatsApp <span class="opc">(opcional, para enviarle la confirmación)</span></label>
     <input id="nTel" type="tel" inputmode="tel" value="${esc(n.tel)}" oninput="ui.nueva.tel=this.value" placeholder="Ej: 0414 123 4567">
     <div style="margin-top:14px"><label class="sw"><input type="checkbox" ${n.otroSistema?'checked':''} onchange="ui.nueva.otroSistema=this.checked"><span>Viene con sistema de otra manicurista</span></label></div>
     <label for="nServ">Servicio</label>
@@ -1071,7 +1071,8 @@ async function guardarNueva(){
   if(guardando)return;guardando=true;
   const ok=await intentar(()=>crearCita(c));guardando=false;if(!ok)return;
   ui.nueva=null;ui.adminFecha=c.fecha;render();
-  aviso('✅','Cita agendada',`${nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`+(tel?' · Toca "Recordar" para avisarle':''));
+  aviso('✅','Cita agendada',`${nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`);
+  if(tel)ofrecerEnvio(c); // como en las citas de las clientas: enviar confirmación con o sin precio
 }
 
 const msgRecordatorio=c=>[
@@ -1134,9 +1135,24 @@ function choca(fecha,hora,dura,ignorar){
   if(dia?.activo&&b>aMin(dia.hasta))return 'termina después de tu hora de cierre';
   return ocupadosDe(fecha).some(o=>o.id!==ignorar&&a<o.fin&&b>o.inicio)?'se cruza con otra cita':'';
 }
+let citaEnvio=null,modoPrecio='confirmar'; // 'confirmar' (cita que agendó la clienta) o 'enviar' (cita que agendó Dana)
+function modalPrecioModo(modo){
+  modoPrecio=modo;const env=modo==='enviar';
+  $('mpTit').textContent=env?'¿Le envías la confirmación?':'Confirmar cita';
+  $('mpDurCaja').hidden=env; // en sus propias citas Dana ya eligió la duración
+  $('mpBtnCon').textContent=env?'Enviar con precio':'Confirmar y enviar precio';
+  $('mpBtnSin').textContent=env?'Enviar sin precio':'Confirmar sin precio';
+  $('mpVolver').textContent=env?'No enviar ahora':'Volver';
+}
+function ofrecerEnvio(c){ // después de que Dana agenda a una clienta con WhatsApp
+  porConfirmar=c.id;citaEnvio=c;modalPrecioModo('enviar');
+  $('mpTxt').textContent=`${c.nombre} · ${nombreServ(c)} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`;
+  $('mpConTel').hidden=false;$('mpSinTel').hidden=true;
+  $('mpPrecio').value='';$('mpPol').checked=true;$('modalPrecio').classList.add('ver');
+}
 function confirmarCita(id){
   const c=db.citas.find(x=>x.id===id);if(!c)return;
-  porConfirmar=id;
+  porConfirmar=id;modalPrecioModo('confirmar');
   $('mpTxt').textContent=`${c.nombre} · ${nombreServ(c)} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`;
   $('mpDur').innerHTML=opcionesDur(durCita(c));
   $('mpConTel').hidden=!c.telefono;$('mpSinTel').hidden=!!c.telefono; // sin número no hay a quién escribirle
@@ -1144,9 +1160,13 @@ function confirmarCita(id){
 }
 function cerrarPrecio(){$('modalPrecio').classList.remove('ver');porConfirmar=null}
 function confirmarConPrecio(conPrecio){
-  const c=db.citas.find(x=>x.id===porConfirmar);if(!c)return cerrarPrecio();
+  const c=db.citas.find(x=>x.id===porConfirmar)||(modoPrecio==='enviar'&&citaEnvio?.id===porConfirmar?citaEnvio:null);if(!c)return cerrarPrecio();
   const precio=conPrecio?formatoCOP($('mpPrecio').value):'';
-  if(conPrecio&&!precio){aviso('💰','Escribe el precio','O toca "Confirmar sin precio"');$('mpPrecio').focus();return}
+  if(conPrecio&&!precio){aviso('💰','Escribe el precio',modoPrecio==='enviar'?'O toca "Enviar sin precio"':'O toca "Confirmar sin precio"');$('mpPrecio').focus();return}
+  if(modoPrecio==='enviar'){ // la cita ya está confirmada: solo se abre WhatsApp
+    window.open(waLink(c.telefono,msgConfirmacion(c,precio,$('mpPol').checked)),'_blank');
+    cerrarPrecio();aviso('✅','Mensaje listo','Envíaselo en WhatsApp');return;
+  }
   const dura=+$('mpDur').value,cambios={estado:'confirmada'};
   if(dura&&dura!==durCita(c))cambios.duracion=dura;
   const ojo=choca(c.fecha,c.hora,dura||durCita(c),c.id);
@@ -1341,7 +1361,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06g'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06h'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
