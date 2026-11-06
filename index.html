@@ -270,6 +270,11 @@ textarea{width:100%;padding:10px 12px;border:1.5px solid var(--linea);border-rad
   <div class="caja larga"><h3 id="polTit">📋 Políticas del studio</h3><div id="polLista"></div>
     <button class="boton" style="margin-top:16px" onclick="$('modalPol').classList.remove('ver')">Entendido 💙</button></div>
 </div>
+ <div class="modal" id="modalCambio" role="dialog" aria-modal="true" aria-labelledby="mcTit">
+  <div class="caja"><div style="font-size:2.6rem;line-height:1.2">🔄</div><h3 id="mcTit">¿Le avisas del cambio?</h3><p id="mcTxt"></p>
+    <a class="boton" id="mcWa" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:16px" onclick="$('modalCambio').classList.remove('ver')">💬 Avisarle por WhatsApp</a>
+    <button class="enlace" style="margin-top:10px" onclick="$('modalCambio').classList.remove('ver')">No avisar</button></div>
+</div>
 <div class="modal" id="modalAviso" role="dialog" aria-modal="true" aria-labelledby="maTit">
   <div class="caja"><div style="font-size:2.6rem;line-height:1.2" id="maIc"></div><h3 id="maTit"></h3><p id="maTxt"></p>
     <button class="boton" id="maVer" style="margin-top:16px">Ver en mi agenda</button>
@@ -592,7 +597,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,acepta:false,
+  reprogramando:null,hecho:null,cambio:null,adminTab:'agenda',adminFecha:hoyISO(),adminMes:null,nueva:null,otroSistema:null,pies:null,lgCorreo:'',cc:null,acepta:false,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -1000,7 +1005,7 @@ function cerrarSesion(){
 function vAgenda(){
   const ahora=Date.now();
   const pend=db.citas.filter(c=>c.estado==='pendiente'&&finCita(c)>=ahora).sort(orden);
-  let h=vNuevaCita();
+  let h=ui.cambio?vCambioCita():vNuevaCita();
   if(pend.length)h+=`<section class="tarjeta"><div class="paso">⏳ Por confirmar <span class="contador">${pend.length}</span></div>${pend.map(c=>tarjetaCita(c,true)).join('')}</section>`;
   const delDia=db.citas.filter(c=>c.fecha===ui.adminFecha).sort(orden);
   h+=`<section class="tarjeta"><div class="paso">📅 Agenda</div>
@@ -1031,6 +1036,55 @@ function vMesAdmin(){
 function moverMes(n){const b=ui.adminMes;ui.adminMes=new Date(b.getFullYear(),b.getMonth()+n,1);render()}
 
 // ----- Dana agenda una cita ella misma (clientas que le escriben directo) -----
+// ----- Dana cambia el día u hora de una cita -----
+function vCambioCita(){
+  const k=ui.cambio,c=db.citas.find(x=>x.id===k.id);if(!c){ui.cambio=null;return vNuevaCita()}
+  const libres=k.fecha?horasLibres(k.fecha,durCita(c),c.id):[];
+  if(!libres.includes(k.hora))k.hora=libres[0]||'';
+  const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
+  return `<section class="tarjeta" id="cambio"><div class="paso">🔄 Cambiar cita</div>
+    <p class="sub"><b>${esc(c.nombre)}</b> · ${esc(nombreServ(c))}<br>Ahora: ${cap(fechaLarga(c.fecha))} a las ${hora12(c.hora)}</p>
+    <div class="dos">
+      <label>Nuevo día<input type="date" min="${hoy}" max="${iso(lim)}" value="${k.fecha}" onchange="ui.cambio.fecha=this.value;render()"></label>
+      <label>Nueva hora${libres.length
+        ?`<select onchange="ui.cambio.hora=this.value">${libres.map(x=>`<option value="${x}"${x===k.hora?' selected':''}>${hora12(x)}</option>`).join('')}</select>`
+        :'<input disabled value="Sin horas libres">'}</label>
+    </div>
+    <div class="dos-b" style="margin-top:14px"><button class="boton sec" onclick="ui.cambio=null;render()">Cancelar</button><button class="boton" onclick="guardarCambio()">Guardar cambio</button></div>
+  </section>`;
+}
+function cambiarAdmin(id){
+  const c=db.citas.find(x=>x.id===id);if(!c)return;
+  ui.nueva=null;ui.cambio={id,fecha:c.fecha,hora:c.hora};render();bajar('cambio');
+}
+async function guardarCambio(){
+  const k=ui.cambio,c=k&&db.citas.find(x=>x.id===k.id);if(!c){ui.cambio=null;render();return}
+  if(k.fecha===c.fecha&&k.hora===c.hora){ui.cambio=null;render();return}
+  if(!k.fecha||!k.hora||!horasLibres(k.fecha,durCita(c),c.id).includes(k.hora)){aviso('🕐','Elige un día y una hora libres','');return}
+  if(guardando)return;
+  const antes={fecha:c.fecha,hora:c.hora};
+  guardando=true;const ok=await intentar(()=>cambiarCita(c,{fecha:k.fecha,hora:k.hora}));guardando=false;if(!ok)return;
+  ui.cambio=null;ui.adminFecha=c.fecha;ui.adminMes=null;render();
+  aviso('✅','Cita cambiada',`${c.nombre} · ${cap(fechaCorta(c.fecha))} ${hora12(c.hora)}`);
+  if(c.telefono){ // se le avisa a la clienta por WhatsApp
+    $('mcTxt').textContent=`${c.nombre}: del ${fechaLarga(antes.fecha)} a las ${hora12(antes.hora)} al ${fechaLarga(c.fecha)} a las ${hora12(c.hora)}.`;
+    $('mcWa').href=waLink(c.telefono,msgCambio(c,antes));$('modalCambio').classList.add('ver');
+  }
+}
+const msgCambio=(c,antes)=>[
+  `¡Hola, ${c.nombre.trim().split(' ')[0]}! 💙✨`,
+  ``,
+  `Te escribo para avisarte que tu cita en *${db.config.nombre}* cambió de horario 🗓️`,
+  ``,
+  `💅 Servicio: ${nombreServ(c)}`,
+  `❌ Antes: ${cap(fechaLarga(antes.fecha))} · ${hora12(antes.hora)}`,
+  `✅ Ahora: *${cap(fechaLarga(c.fecha))} · ${hora12(c.hora)}*`,
+  ``,
+  `Si este horario no te queda bien, avísame por aquí y buscamos otro 🙏`,
+  ``,
+  `¡Te espero! ✨`
+].join('\n');
+
 function vNuevaCita(){
   const n=ui.nueva;
   if(!n)return `<button class="boton" style="margin:0 0 16px" onclick="abrirNueva()">＋ Agendar una cita</button>`;
@@ -1059,6 +1113,7 @@ function vNuevaCita(){
   </section>`;
 }
 function abrirNueva(){
+  ui.cambio=null;
   const s0=db.servicios[0],d=s0?.duracion||150;
   // si el día que está viendo ya no tiene horas libres, se propone el próximo día libre
   const fecha=horasLibres(ui.adminFecha,d).length?ui.adminFecha:(primerDiaLibre(d)||ui.adminFecha);
@@ -1098,6 +1153,7 @@ function tarjetaCita(c,conFecha){
   if(c.estado!=='cancelada'){
     acc=`${c.estado==='pendiente'?`<button class="mini ok" onclick="confirmarCita('${c.id}')">✓ Confirmar</button>`:''}
       ${c.telefono?`<a class="mini wa" href="${esc(waLink(c.telefono,msgRecordatorio(c)))}" target="_blank" rel="noopener">💬 Recordar</a>`:''}
+      <button class="mini az" onclick="cambiarAdmin('${c.id}')">🔄 Cambiar</button>
       <button class="mini no" onclick="cancelarAdmin('${c.id}')">Cancelar</button>`;
   }else if(c.canceladaPor==='manicurista'&&c.telefono){
     acc=`<a class="mini wa" href="${esc(waLink(c.telefono,msgCancelacion(c)))}" target="_blank" rel="noopener">💬 Avisarle</a>`;
@@ -1365,7 +1421,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06j'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06k'; // cambiar este texto cada vez que se publique un cambio
 // El teléfono guarda una copia de la página: se pide la nueva sin usar esa copia y se recarga
 async function actualizarYa(){
   $('nuevaVersion').classList.remove('ver');
@@ -1374,7 +1430,7 @@ async function actualizarYa(){
 }
 if(/[?&]act=/.test(location.search))history.replaceState(null,'',location.pathname);
 // ¿Hay alguien llenando algo? (para no recargar en medio)
-const ocupada=()=>!!(avisoAbierto||ui.servicioId||ui.nueva||ui.cc||ui.reprogramando||document.querySelector('.modal.ver'));
+const ocupada=()=>!!(avisoAbierto||ui.servicioId||ui.nueva||ui.cambio||ui.cc||ui.reprogramando||document.querySelector('.modal.ver'));
 function revisarVersion(alAbrir){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
