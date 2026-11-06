@@ -811,9 +811,10 @@ try{navigator.serviceWorker.addEventListener('message',e=>{
   if(e.data?.tipo==='aviso-dana'&&leerAviso(e.data.url)){borrarAvisoGuardado();render();mostrarAvisoAbierto()}
 })}catch(e){} // navegador sin service worker
 // en iPhone la app a veces abre sin el link: el service worker deja guardada la notificación tocada
-const LLAVE_AVISO=new URL('__aviso',location.href).href;
-function borrarAvisoGuardado(){try{caches.open('dn-aviso').then(c=>c.delete(LLAVE_AVISO)).catch(()=>{})}catch(e){}}
+let LLAVE_AVISO='';try{LLAVE_AVISO=new URL('__aviso',location.href).href}catch(e){} // sin dirección normal (vista previa) no hay
+function borrarAvisoGuardado(){if(!LLAVE_AVISO)return;try{caches.open('dn-aviso').then(c=>c.delete(LLAVE_AVISO)).catch(()=>{})}catch(e){}}
 async function avisoGuardado(){
+  if(!LLAVE_AVISO)return;
   try{
     const cache=await caches.open('dn-aviso'),r=await cache.match(LLAVE_AVISO);if(!r)return;
     await cache.delete(LLAVE_AVISO);
@@ -908,7 +909,7 @@ let tokenMem=''; // por si el navegador no deja guardar
 const tokenGuardado=()=>{try{return localStorage.getItem('dn_notif')||tokenMem}catch(e){return tokenMem}};
 async function registrarTelefono(){ // pide el código de este teléfono y lo guarda para que el Worker le escriba
   const reg=await navigator.serviceWorker.register('sw.js?v=6'); // al cambiar el número, el teléfono se actualiza sí o sí
-  reg.update().catch(()=>{});
+  try{reg.update().catch(()=>{})}catch(e){}
   const token=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
   if(!token)throw new Error('sin token');
   await fs.collection('tokens').doc(token).set({uid:usuario.uid,creado:Date.now(),equipo:navigator.userAgent.slice(0,140)});
