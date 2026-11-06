@@ -168,7 +168,11 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .sw input:checked::after{left:21px}
 .bloqueo{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;margin-top:8px;border-radius:14px;background:var(--royal-claro);font-size:.92rem}
 .serv-edit{padding:12px;margin-bottom:10px;border:1.5px solid var(--linea);border-radius:16px;background:#fff}
-.dos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dos{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.dos label{min-width:0}
+/* en iPhone el campo de fecha es más ancho que su columna y se montaba sobre la hora */
+input[type=date]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;min-height:44px;text-align:left}
+input[type=date]::-webkit-date-and-time-value{text-align:left}
 .dos label{font-size:.82rem;margin:8px 0 0}
 .dos input,.dos select{margin-top:4px;padding:9px 10px;font-size:.95rem}
 .serv-edit .mini{margin-top:10px}
@@ -1361,7 +1365,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06h'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06i'; // cambiar este texto cada vez que se publique un cambio
 function revisarVersion(){
   if(!/^https?:$/.test(location.protocol))return;
   fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
