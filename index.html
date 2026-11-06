@@ -691,7 +691,7 @@ async function agendar(){
 // Cuando una clienta agenda, cambia o cancela, el Worker de Cloudflare le manda a Dana
 // una notificación al teléfono (y WhatsApp si se configura CallMeBot).
 const AVISOS_URL=''; // 👉 enlace del Worker, ej: https://dana-nails-avisos.xxxx.workers.dev
-const VAPID_KEY='';  // 👉 clave de Firebase → Cloud Messaging → Certificados push web
+const VAPID_KEY='BDEoBpHr-mEo6dkNspaJF0qAQmAPlWn0rbDoMuEb9LnPpWMPpSFt6qAJNOee2qplQ3Bid4j5ZC7B3J_31Lu20u8'; // Firebase → Cloud Messaging → Certificados push web
 function notificarManicurista(c,tipo){
   if(FB){
     if(AVISOS_URL)fetch(AVISOS_URL,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
