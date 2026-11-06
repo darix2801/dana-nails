@@ -787,9 +787,9 @@ function mostrarAvisoAbierto(){
 }
 if(leerAviso(location.href))history.replaceState(null,'',location.pathname); // se quita del link para que no salga otra vez
 // si la app ya estaba abierta, el service worker le pasa la notificación que se tocó
-if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{
+try{navigator.serviceWorker.addEventListener('message',e=>{
   if(e.data?.tipo==='aviso-dana'&&leerAviso(e.data.url)){render();mostrarAvisoAbierto()}
-});
+})}catch(e){} // navegador sin service worker
 // al volver a la app se vuelve a dibujar (evita que quede en blanco)
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refrescar()});
 
