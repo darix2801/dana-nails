@@ -770,13 +770,14 @@ async function entrar(){
 const esIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent);
 const instalada=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const hayPush=()=>'serviceWorker' in navigator&&'Notification' in window&&!!(window.firebase&&firebase.messaging);
-const tokenGuardado=()=>{try{return localStorage.getItem('dn_notif')||''}catch(e){return ''}};
+let tokenMem=''; // por si el navegador no deja guardar
+const tokenGuardado=()=>{try{return localStorage.getItem('dn_notif')||tokenMem}catch(e){return tokenMem}};
 async function registrarTelefono(){ // pide el código de este teléfono y lo guarda para que el Worker le escriba
   const reg=await navigator.serviceWorker.register('sw.js');
   const token=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
   if(!token)throw new Error('sin token');
   await fs.collection('tokens').doc(token).set({uid:usuario.uid,creado:Date.now(),equipo:navigator.userAgent.slice(0,140)});
-  try{localStorage.setItem('dn_notif',token)}catch(e){}
+  tokenMem=token;try{localStorage.setItem('dn_notif',token)}catch(e){}
   return token;
 }
 function vNotif(){
