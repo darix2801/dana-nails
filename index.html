@@ -185,6 +185,10 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .caja h3{font-weight:600;margin-bottom:6px}
 .caja p{color:var(--gris);font-size:.94rem}
 .caja .izq{text-align:left}
+.clave{position:relative}
+.clave input{padding-right:50px}
+.ojo{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:50%;background:none;color:var(--gris)}
+.ojo svg{width:22px;height:22px}
 .sino{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
 .etiqueta{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:var(--royal-claro);color:var(--royal);font-size:.8rem;font-weight:500}
 .dos-b{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
@@ -687,7 +691,7 @@ function vLogin(){
     <section class="tarjeta"><div class="paso">🔒 Entrar</div>
     <p class="sub">Este panel es solo para Dana.</p>
     <label for="lgCorreo">Correo</label><input id="lgCorreo" type="email" autocomplete="username" value="${esc(ui.lgCorreo)}" oninput="ui.lgCorreo=this.value">
-    <label for="lgClave">Contraseña</label><input id="lgClave" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()">
+    <label for="lgClave">Contraseña</label><div class="clave"><input id="lgClave" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()">${botonOjo('lgClave')}</div>
     <button class="boton" onclick="entrar()">Entrar</button>
     <button class="enlace" style="display:block;margin:14px auto 0" onclick="olvideClave()">¿Olvidaste tu contraseña?</button></section>`;
 }
@@ -724,6 +728,16 @@ async function olvideClave(){
   if(!correo){aviso('📧','Escribe tu correo arriba','Te enviaremos un enlace para crear una contraseña nueva');$('lgCorreo').focus();return}
   try{auth.languageCode='es';await auth.sendPasswordResetEmail(correo);aviso('📧','Revisa tu correo','Te enviamos un enlace para crear una contraseña nueva')}
   catch(e){aviso('📧','No se pudo enviar',e.code==='auth/invalid-email'?'Revisa que el correo esté bien escrito':'Revisa tu conexión')}
+}
+// Botón del ojito para ver u ocultar la contraseña
+const OJO='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
+const botonOjo=id=>`<button type="button" class="ojo" aria-label="Mostrar contraseña" onclick="verClave('${id}',this)">${OJO}</svg></button>`;
+function verClave(id,b){
+  const i=$(id),ver=i.type==='password';
+  i.type=ver?'text':'password';
+  b.innerHTML=OJO+(ver?'<path d="M3 3l18 18"/>':'')+'</svg>'; // con rayita = se está viendo
+  b.setAttribute('aria-label',ver?'Ocultar contraseña':'Mostrar contraseña');
+  i.focus();
 }
 function cerrarSesion(){
   confirmar('¿Cerrar sesión?','Para volver a entrar al panel necesitarás tu correo y tu contraseña.','Sí, cerrar',async()=>{
@@ -932,9 +946,9 @@ function vAjustes(){
       <button class="mini no" onclick="quitarServ(${i})">Eliminar</button></div>`).join('')}
     <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button></section>
   ${FB?`<section class="tarjeta" id="sesion"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
-    ${ui.cc?`<label for="ccActual">Contraseña actual</label><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">
-      <label for="ccNueva">Nueva contraseña</label><input id="ccNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" value="${esc(ui.cc.n)}" oninput="ui.cc.n=this.value">
-      <label for="ccRepite">Repite la nueva</label><input id="ccRepite" type="password" autocomplete="new-password" value="${esc(ui.cc.r)}" oninput="ui.cc.r=this.value" onkeydown="if(event.key==='Enter')cambiarClave()">
+    ${ui.cc?`<label for="ccActual">Contraseña actual</label><div class="clave"><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">${botonOjo('ccActual')}</div>
+      <label for="ccNueva">Nueva contraseña</label><div class="clave"><input id="ccNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" value="${esc(ui.cc.n)}" oninput="ui.cc.n=this.value">${botonOjo('ccNueva')}</div>
+      <label for="ccRepite">Repite la nueva</label><div class="clave"><input id="ccRepite" type="password" autocomplete="new-password" value="${esc(ui.cc.r)}" oninput="ui.cc.r=this.value" onkeydown="if(event.key==='Enter')cambiarClave()">${botonOjo('ccRepite')}</div>
       <div class="dos-b" style="margin-top:14px"><button class="boton sec" onclick="ui.cc=null;render()">Cancelar</button><button class="boton" onclick="cambiarClave()">Guardar</button></div>`
     :`<div class="acciones"><button class="mini az" onclick="ui.cc={a:'',n:'',r:''};render();bajar('sesion')">Cambiar contraseña</button><button class="mini no" onclick="cerrarSesion()">Cerrar sesión</button></div>`}
     </section>`
