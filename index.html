@@ -459,7 +459,7 @@ function primerDiaLibre(duracion,ignorar){
 
 // ================= Estado de la pantalla =================
 const ui={vista:'reservar',servicioId:null,fecha:null,hora:null,mes:null,nombre:'',tel:'',foto:null,
-  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),nueva:null,otroSistema:null,lgCorreo:'',
+  reprogramando:null,hecho:null,adminTab:'agenda',adminFecha:hoyISO(),nueva:null,otroSistema:null,lgCorreo:'',cc:null,
   bloq:{fecha:'',todo:true,desde:'09:00',hasta:'12:00',motivo:''}};
 (()=>{const d=new Date();ui.mes=new Date(d.getFullYear(),d.getMonth(),1)})();
 
@@ -671,7 +671,8 @@ function vLogin(){
     <p class="sub">Este panel es solo para Dana.</p>
     <label for="lgCorreo">Correo</label><input id="lgCorreo" type="email" autocomplete="username" value="${esc(ui.lgCorreo)}" oninput="ui.lgCorreo=this.value">
     <label for="lgClave">Contraseña</label><input id="lgClave" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()">
-    <button class="boton" onclick="entrar()">Entrar</button></section>`;
+    <button class="boton" onclick="entrar()">Entrar</button>
+    <button class="enlace" style="display:block;margin:14px auto 0" onclick="olvideClave()">¿Olvidaste tu contraseña?</button></section>`;
 }
 async function entrar(){
   const correo=ui.lgCorreo.trim(),clave=$('lgClave').value;
@@ -682,9 +683,34 @@ async function entrar(){
     aviso('🔒','No se pudo entrar',malos?'Correo o contraseña incorrectos':e.code==='auth/too-many-requests'?'Demasiados intentos, espera un rato':'Revisa tu conexión');
   }
 }
+// ----- Contraseña de Dana -----
+async function cambiarClave(){
+  const {a,n,r}=ui.cc;
+  if(!a||!n){aviso('🔒','Completa los campos','');return}
+  if(n.length<6){aviso('🔒','Contraseña muy corta','Debe tener al menos 6 caracteres');return}
+  if(n!==r){aviso('🔒','No coinciden','Escribe la nueva contraseña igual en los dos campos');return}
+  const u=auth.currentUser;
+  try{
+    // Firebase pide confirmar la contraseña actual antes de cambiarla
+    await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email,a));
+    await u.updatePassword(n);
+    ui.cc=null;render();aviso('✅','Contraseña cambiada','Usa la nueva la próxima vez que entres');
+  }catch(e){
+    const c=e.code||'';
+    aviso('🔒','No se pudo cambiar',/wrong-password|invalid-credential/.test(c)?'La contraseña actual no es correcta'
+      :c==='auth/weak-password'?'La nueva es muy débil, usa al menos 6 caracteres'
+      :c==='auth/too-many-requests'?'Demasiados intentos, espera un rato':'Revisa tu conexión');
+  }
+}
+async function olvideClave(){
+  const correo=ui.lgCorreo.trim();
+  if(!correo){aviso('📧','Escribe tu correo arriba','Te enviaremos un enlace para crear una contraseña nueva');$('lgCorreo').focus();return}
+  try{auth.languageCode='es';await auth.sendPasswordResetEmail(correo);aviso('📧','Revisa tu correo','Te enviamos un enlace para crear una contraseña nueva')}
+  catch(e){aviso('📧','No se pudo enviar',e.code==='auth/invalid-email'?'Revisa que el correo esté bien escrito':'Revisa tu conexión')}
+}
 function cerrarSesion(){
   confirmar('¿Cerrar sesión?','Para volver a entrar al panel necesitarás tu correo y tu contraseña.','Sí, cerrar',async()=>{
-    ui.vista='reservar';await auth.signOut();
+    ui.vista='reservar';ui.cc=null;await auth.signOut();
   });
 }
 
@@ -888,8 +914,13 @@ function vAjustes(){
       <label>Duración<select onchange="setServ(${i},'duracion',+this.value)">${[30,45,60,90,120,150,180].map(m=>`<option value="${m}"${m===s.duracion?' selected':''}>${dur(m)}</option>`).join('')}</select></label>
       <button class="mini no" onclick="quitarServ(${i})">Eliminar</button></div>`).join('')}
     <button class="boton sec" onclick="agregarServ()">+ Agregar servicio</button></section>
-  ${FB?`<section class="tarjeta"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
-    <button class="mini no" onclick="cerrarSesion()">Cerrar sesión</button></section>`
+  ${FB?`<section class="tarjeta" id="sesion"><div class="paso">🔒 Sesión</div><p class="sub">Entraste como ${esc(usuario?.email||'Dana')}.</p>
+    ${ui.cc?`<label for="ccActual">Contraseña actual</label><input id="ccActual" type="password" autocomplete="current-password" value="${esc(ui.cc.a)}" oninput="ui.cc.a=this.value">
+      <label for="ccNueva">Nueva contraseña</label><input id="ccNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" value="${esc(ui.cc.n)}" oninput="ui.cc.n=this.value">
+      <label for="ccRepite">Repite la nueva</label><input id="ccRepite" type="password" autocomplete="new-password" value="${esc(ui.cc.r)}" oninput="ui.cc.r=this.value" onkeydown="if(event.key==='Enter')cambiarClave()">
+      <div class="dos-b" style="margin-top:14px"><button class="boton sec" onclick="ui.cc=null;render()">Cancelar</button><button class="boton" onclick="cambiarClave()">Guardar</button></div>`
+    :`<div class="acciones"><button class="mini az" onclick="ui.cc={a:'',n:'',r:''};render();bajar('sesion')">Cambiar contraseña</button><button class="mini no" onclick="cerrarSesion()">Cerrar sesión</button></div>`}
+    </section>`
   :`<section class="tarjeta"><div class="paso">🧪 Modo prueba</div><p class="sub">Firebase no está conectado, así que todo se guarda solo en este teléfono. Este botón borra todo y vuelve a los datos de ejemplo.</p>
     <button class="mini no" onclick="reiniciar()">Reiniciar datos</button></section>`}`;
 }
