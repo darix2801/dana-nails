@@ -179,6 +179,10 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
 .aviso .ic{font-size:1.5rem}
 .aviso b{font-weight:600}
 .aviso small{display:block;color:var(--gris);font-size:.86rem}
+.nueva{position:fixed;left:50%;bottom:16px;z-index:60;display:none;align-items:center;gap:10px;width:min(440px,calc(100% - 32px));padding:10px 10px 10px 16px;border-radius:999px;background:var(--tinta);color:#fff;font-size:.92rem;box-shadow:0 14px 34px rgba(13,27,76,.3);transform:translateX(-50%)}
+.nueva.ver{display:flex}
+.nueva span{flex:1}
+.nueva button{border:0;border-radius:999px;padding:8px 16px;background:#fff;color:var(--royal);font:inherit;font-weight:600}
 .modal,.visor{position:fixed;inset:0;z-index:40;display:none;place-items:center;padding:16px;background:rgba(13,27,76,.35);backdrop-filter:blur(4px)}
 .modal.ver,.visor.ver{display:grid}
 .caja{width:min(380px,100%);padding:22px;border-radius:22px;background:#fff;text-align:center}
@@ -236,6 +240,7 @@ input:focus,select:focus{outline:none;border-color:var(--royal);box-shadow:0 0 0
   </footer>
 </div>
 
+<div class="nueva" id="nuevaVersion" role="status"><span>✨ Hay una versión nueva de la página</span><button onclick="location.reload()">Actualizar</button></div>
 <div class="aviso" id="aviso" role="status" aria-live="polite"><span class="ic" id="avIc"></span><div><b id="avTit"></b><small id="avTxt"></small></div></div>
 <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTit">
   <div class="caja"><h3 id="mTit"></h3><p id="mTxt"></p>
@@ -1184,6 +1189,19 @@ function pintarRedes(){
 }
 // Ícono de la pestaña y de la pantalla de inicio con el logo
 $('favicon').href=$('logoImg').src;
+
+// ================= Versión nueva =================
+// La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
+const VERSION='2026-11-06b'; // cambiar este texto cada vez que se publique un cambio
+function revisarVersion(){
+  if(!/^https?:$/.test(location.protocol))return;
+  fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():'').then(t=>{
+    const v=(t.match(/const VERSION='([^']+)'/)||[])[1];
+    if(v&&v!==VERSION)$('nuevaVersion').classList.add('ver');
+  }).catch(()=>{});
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')revisarVersion()});
+setTimeout(revisarVersion,3000);
 
 iniciar();
 </script>
