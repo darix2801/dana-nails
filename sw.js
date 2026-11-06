@@ -1,6 +1,6 @@
 // Dana Nails · muestra los avisos en la pantalla de notificaciones del teléfono,
 // con la app abierta o cerrada, y al tocarlos abre la app con lo que pasó
-const VERSION_SW = 5;
+const VERSION_SW = 6;
 const APP = 'https://darix2801.github.io/dana-nails/';
 
 // registro de lo que pasa con los avisos (se ve en Ajustes → Notificaciones → Ver registro)
@@ -16,6 +16,20 @@ const conTiempo = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => 
 
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(anotar('servicio de avisos v' + VERSION_SW + ' instalado')); });
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+
+// Al abrir la app se pide siempre la página nueva (sin usar la copia guardada del teléfono).
+// Sin internet, se usa la copia de siempre.
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.mode !== 'navigate' || !req.url.startsWith(APP)) return;
+  e.respondWith((async () => {
+    try {
+      const r = await fetch(req.url, { cache: 'no-store', credentials: 'same-origin' });
+      if (r.ok && !r.redirected) return r;
+    } catch (err) {}
+    return fetch(req);
+  })());
+});
 
 self.addEventListener('push', e => {
   let d = {};
