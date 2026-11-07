@@ -602,35 +602,42 @@ function refrescar(){
 // ================= Disponibilidad =================
 // Todas las horas del día (de la apertura al cierre), cada una con si se puede elegir y por qué no:
 //   'ocupada'   → ya hay una cita a esa hora
-//   'bloqueada' → descanso o bloqueo de Dana
-//   'alcanza'   → el servicio no alcanza a terminar antes de la siguiente cita o del cierre
+//   'descanso'  → descanso diario de Dana
+//   'bloqueada' → horas o día que Dana bloqueó
+//   'alcanza'   → el servicio no alcanza a terminar antes de la siguiente cita, del descanso o del cierre
 //   'pasada'    → ya pasó (o falta muy poco)
-function estadoHoras(fecha,duracion,ignorar){
+// paraDana: en sus propios formularios solo la detienen las otras citas; el descanso, los bloqueos
+// y el cierre salen como nota (ella decide si atiende igual).
+function estadoHoras(fecha,duracion,ignorar,paraDana){
   const dia=db.config.horario[deISO(fecha).getDay()];
   if(!dia||!dia.activo)return[];
   const bloq=db.config.bloqueos.filter(b=>b.fecha===fecha);
-  if(bloq.some(b=>b.todoDia))return[];
-  const citas=ocupadosDe(fecha).filter(o=>o.id!==ignorar).map(o=>[o.inicio,o.fin]),otros=[];
-  bloq.forEach(b=>otros.push([aMin(b.desde),aMin(b.hasta)]));
-  const des=db.config.descanso;
-  if(des.activo)otros.push([aMin(des.desde),aMin(des.hasta)]);
+  if(bloq.some(b=>b.todoDia)&&!paraDana)return[];
+  const citas=ocupadosDe(fecha).filter(o=>o.id!==ignorar).map(o=>[o.inicio,o.fin]);
+  const blq=bloq.map(b=>b.todoDia?[0,24*60]:[aMin(b.desde),aMin(b.hasta)]);
+  const des=db.config.descanso,desc=des.activo?[[aMin(des.desde),aMin(des.hasta)]]:[];
   let minimo=0;
-  if(fecha===hoyISO()){const n=new Date();minimo=n.getHours()*60+n.getMinutes()+ANTICIPACION}
+  if(fecha===hoyISO()){const n=new Date();minimo=n.getHours()*60+n.getMinutes()+(paraDana?0:ANTICIPACION)}
   const cierre=aMin(dia.hasta),dentro=(t,l)=>l.some(([a,b])=>t>=a&&t<b),cruza=(t,l)=>l.some(([a,b])=>t<b&&t+duracion>a);
   const lista=[];
   for(let t=aMin(dia.desde);t<cierre;t+=db.config.intervalo){
-    const motivo=t<minimo?'pasada':dentro(t,citas)?'ocupada':dentro(t,otros)?'bloqueada'
-      :(t+duracion>cierre||cruza(t,citas)||cruza(t,otros))?'alcanza':'';
-    lista.push({hora:aHora(t),libre:!motivo,motivo});
+    let motivo=t<minimo?'pasada':dentro(t,citas)?'ocupada':'',nota='';
+    if(!motivo&&!paraDana)motivo=dentro(t,blq)?'bloqueada':dentro(t,desc)?'descanso':'';
+    if(!motivo&&(cruza(t,citas)||(!paraDana&&(t+duracion>cierre||cruza(t,blq)||cruza(t,desc)))))motivo='alcanza';
+    if(!motivo&&paraDana)nota=cruza(t,blq)?'bloqueo':cruza(t,desc)?'descanso':t+duracion>cierre?'cierre':'';
+    lista.push({hora:aHora(t),libre:!motivo,motivo,nota});
   }
   return lista;
 }
 // Las horas en que cabe un servicio de "duracion" minutos ese día
 const horasLibres=(fecha,duracion,ignorar)=>estadoHoras(fecha,duracion,ignorar).filter(x=>x.libre).map(x=>x.hora);
-const MOTIVO_HORA={ocupada:'ocupada',bloqueada:'no disponible',alcanza:'no alcanza',pasada:'ya pasó'};
+const MOTIVO_HORA={ocupada:'ocupada',bloqueada:'no disponible',descanso:'no disponible',alcanza:'no alcanza',pasada:'ya pasó'};
+const NOTA_HORA={descanso:'se cruza con tu descanso',bloqueo:'se cruza con horas bloqueadas',cierre:'termina después del cierre'};
+const MOTIVO_DANA={ocupada:'ocupada',alcanza:'se cruza con otra cita',pasada:'ya pasó'};
+const libresDana=(fecha,duracion,ignorar)=>estadoHoras(fecha,duracion,ignorar,true).filter(x=>x.libre).map(x=>x.hora);
 function porQueNo(motivo,duracion){
   if(motivo==='ocupada')return ['Esa hora ya está agendada','Elige una de las horas en blanco'];
-  if(motivo==='bloqueada')return ['Esa hora no está disponible','Elige una de las horas en blanco'];
+  if(motivo==='bloqueada'||motivo==='descanso')return ['Esa hora no está disponible','Elige una de las horas en blanco'];
   if(motivo==='pasada')return ['Esa hora ya pasó','Para hoy se agenda con al menos 1 hora de anticipación'];
   return ['Tu servicio no alcanza a esa hora',`Dura ${dur(duracion)} y no terminaría antes de la siguiente cita o de que cierre`];
 }
@@ -1094,21 +1101,25 @@ function moverMes(n){const b=ui.adminMes;ui.adminMes=new Date(b.getFullYear(),b.
 
 // ----- Dana agenda una cita ella misma (clientas que le escriben directo) -----
 // Lista de horas para los formularios de Dana: las no disponibles salen pero no se pueden elegir
-const opcionesHora=(horas,sel)=>horas.map(x=>`<option value="${x.hora}"${x.hora===sel?' selected':''}${x.libre?'':' disabled'}>${hora12(x.hora)}${x.libre?'':' · '+MOTIVO_HORA[x.motivo]}</option>`).join('');
+const opcionesHora=(horas,sel)=>horas.map(x=>`<option value="${x.hora}"${x.hora===sel?' selected':''}${x.libre?'':' disabled'}>${hora12(x.hora)}${
+  x.libre?(x.nota?' · '+NOTA_HORA[x.nota]:''):' · '+MOTIVO_DANA[x.motivo]}</option>`).join('');
+// Para Dana: primero una hora sin notas; si no hay, cualquiera libre
+const primeraHora=horas=>(horas.find(x=>x.libre&&!x.nota)||horas.find(x=>x.libre))?.hora||'';
+const notaElegida=(horas,h)=>{const x=horas.find(y=>y.hora===h);return x?.nota?`<p class="ojo-sis" style="margin-top:8px">⚠️ Esa hora ${NOTA_HORA[x.nota]}. Puedes agendarla igual.</p>`:''};
 // ----- Dana cambia el día u hora de una cita -----
 function vCambioCita(){
   const k=ui.cambio,c=db.citas.find(x=>x.id===k.id);if(!c){ui.cambio=null;return vNuevaCita()}
-  const horas=k.fecha?estadoHoras(k.fecha,durCita(c),c.id):[],libres=horas.filter(x=>x.libre).map(x=>x.hora);
-  if(!libres.includes(k.hora))k.hora=libres[0]||'';
+  const horas=k.fecha?estadoHoras(k.fecha,durCita(c),c.id,true):[],libres=horas.filter(x=>x.libre).map(x=>x.hora);
+  if(!libres.includes(k.hora))k.hora=primeraHora(horas);
   const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
   return `<section class="tarjeta" id="cambio"><div class="paso">🔄 Cambiar cita</div>
     <p class="sub"><b>${esc(c.nombre)}</b> · ${esc(nombreServ(c))}<br>Ahora: ${cap(fechaLarga(c.fecha))} a las ${hora12(c.hora)}</p>
     <div class="dos">
       <label>Nuevo día<input type="date" min="${hoy}" max="${iso(lim)}" value="${k.fecha}" onchange="ui.cambio.fecha=this.value;render()"></label>
       <label>Nueva hora${libres.length
-        ?`<select onchange="ui.cambio.hora=this.value">${opcionesHora(horas,k.hora)}</select>`
+        ?`<select onchange="ui.cambio.hora=this.value;render()">${opcionesHora(horas,k.hora)}</select>`
         :'<input disabled value="Sin horas libres">'}</label>
-    </div>
+    </div>${notaElegida(horas,k.hora)}
     <div class="dos-b" style="margin-top:14px"><button class="boton sec" onclick="ui.cambio=null;render()">Cancelar</button><button class="boton" onclick="guardarCambio()">Guardar cambio</button></div>
   </section>`;
 }
@@ -1119,7 +1130,7 @@ function cambiarAdmin(id){
 async function guardarCambio(){
   const k=ui.cambio,c=k&&db.citas.find(x=>x.id===k.id);if(!c){ui.cambio=null;render();return}
   if(k.fecha===c.fecha&&k.hora===c.hora){ui.cambio=null;render();return}
-  if(!k.fecha||!k.hora||!horasLibres(k.fecha,durCita(c),c.id).includes(k.hora)){aviso('🕐','Elige un día y una hora libres','');return}
+  if(!k.fecha||!k.hora||!libresDana(k.fecha,durCita(c),c.id).includes(k.hora)){aviso('🕐','Elige un día y una hora libres','');return}
   if(guardando)return;
   const antes={fecha:c.fecha,hora:c.hora};
   guardando=true;const ok=await intentar(()=>cambiarCita(c,{fecha:k.fecha,hora:k.hora}));guardando=false;if(!ok)return;
@@ -1148,8 +1159,8 @@ function vNuevaCita(){
   const n=ui.nueva;
   if(!n)return `<button class="boton" style="margin:0 0 16px" onclick="abrirNueva()">＋ Agendar una cita</button>`;
   const s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies,n.spa),D=n.dur||R?.duracion||150;
-  const horas=s&&n.fecha?estadoHoras(n.fecha,D):[],libres=horas.filter(x=>x.libre).map(x=>x.hora);
-  if(!libres.includes(n.hora))n.hora=libres[0]||'';
+  const horas=s&&n.fecha?estadoHoras(n.fecha,D,null,true):[],libres=horas.filter(x=>x.libre).map(x=>x.hora);
+  if(!libres.includes(n.hora))n.hora=primeraHora(horas);
   const hoy=hoyISO(),lim=deISO(hoy);lim.setDate(lim.getDate()+DIAS_MAX);
   return `<section class="tarjeta" id="nueva"><div class="paso">💅 Nueva cita</div>
     <p class="sub">Para clientas que te escriben directo. Queda confirmada de una vez.</p>
@@ -1166,9 +1177,9 @@ function vNuevaCita(){
     <div class="dos">
       <label>Día<input type="date" min="${hoy}" max="${iso(lim)}" value="${n.fecha}" onchange="ui.nueva.fecha=this.value;render()"></label>
       <label>Hora${libres.length
-        ?`<select onchange="ui.nueva.hora=this.value">${opcionesHora(horas,n.hora)}</select>`
+        ?`<select onchange="ui.nueva.hora=this.value;render()">${opcionesHora(horas,n.hora)}</select>`
         :'<input disabled value="Sin horas libres">'}</label>
-    </div>
+    </div>${notaElegida(horas,n.hora)}
     <div class="dos-b" style="margin-top:14px"><button class="boton sec" onclick="ui.nueva=null;render()">Cancelar</button><button class="boton" onclick="guardarNueva()">Guardar cita</button></div>
   </section>`;
 }
@@ -1176,7 +1187,7 @@ function abrirNueva(){
   ui.cambio=null;
   const s0=db.servicios[0],d=s0?.duracion||150;
   // si el día que está viendo ya no tiene horas libres, se propone el próximo día libre
-  const fecha=horasLibres(ui.adminFecha,d).length?ui.adminFecha:(primerDiaLibre(d)||ui.adminFecha);
+  const fecha=libresDana(ui.adminFecha,d).length?ui.adminFecha:(primerDiaLibre(d)||ui.adminFecha);
   ui.nueva={nombre:'',tel:'',otroSistema:false,servicioId:s0?.id,pies:'no',spa:false,fecha,hora:''};
   render();bajar('nueva');
 }
@@ -1184,7 +1195,7 @@ async function guardarNueva(){
   const n=ui.nueva,s=servicio(n.servicioId),R=reserva(n.servicioId,n.pies,n.spa),D=n.dur||R?.duracion||150,nombre=n.nombre.trim(),tel=normTel(n.tel);
   if(nombre.length<2){aviso('✍️','Falta el nombre de la clienta','');$('nNom').focus();return}
   if(tel&&tel.length<10){aviso('📱','Revisa el número','Debe tener al menos 10 dígitos, o déjalo vacío');$('nTel').focus();return}
-  if(!s||!n.fecha||!n.hora||!horasLibres(n.fecha,D).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
+  if(!s||!n.fecha||!n.hora||!libresDana(n.fecha,D).includes(n.hora)){aviso('🕐','Elige un día y una hora libres','');return}
   const c={id:nuevoId(),uid:miUid(),servicioId:s.id,servicioNombre:R.nombre,duracion:D,fecha:n.fecha,hora:n.hora,
     nombre,telefono:tel,foto:null,otroSistema:n.otroSistema,estado:'confirmada',creadaPor:'manicurista',creada:Date.now()};
   if(guardando)return;guardando=true;
@@ -1484,7 +1495,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06n'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06o'; // cambiar este texto cada vez que se publique un cambio
 // El teléfono guarda una copia de la página: se pide la nueva sin usar esa copia y se recarga
 async function actualizarYa(){
   $('nuevaVersion').classList.remove('ver');
