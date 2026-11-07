@@ -206,6 +206,13 @@ input[type=date]::-webkit-date-and-time-value{text-align:left}
 .dia-ad.pasado{opacity:.5}
 .dia-ad.sel{background:var(--glitter) 0 0/160px,var(--royal);border-color:transparent;color:#fff;box-shadow:0 0 0 3px #fff,0 0 0 4.5px var(--royal)}
 .dia-ad.sel small{background:#fff;color:var(--royal)}
+.dia-ad.sel small.cero{background:none}
+.ocupa{margin-top:16px;padding:14px;border-radius:16px;background:#f6f8ff;border:1.5px solid var(--linea)}
+.ocupa .tit{font-weight:600;margin-bottom:6px}
+.ocupa-fila{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--linea);font-size:.9rem}
+.ocupa-fila:first-of-type{border-top:0}
+.ocupa-fila span{flex:1}
+.ocupa-fila b{font-weight:600}
 .punto-pend{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e8961c;vertical-align:middle}
 .grupo-serv{font-size:.9rem;font-weight:600;color:var(--gris);margin:12px 0 0}
 /* políticas del studio */
@@ -1075,8 +1082,37 @@ function vAgenda(){
   h+=`<section class="tarjeta"><div class="paso">📅 Agenda</div>
     ${vMesAdmin()}
     <p class="dia-titulo" id="diaSel">${cap(fechaLarga(ui.adminFecha))}</p>
-    ${delDia.length?delDia.map(c=>tarjetaCita(c,false)).join(''):'<p class="vacio">No hay citas este día ✨</p>'}</section>`;
+    ${delDia.length?delDia.map(c=>tarjetaCita(c,false)).join(''):'<p class="vacio">No hay citas este día ✨</p>'}
+    ${vOcupadoDia(ui.adminFecha)}</section>`;
   return h;
+}
+// Qué ocupa el día (citas, descanso, bloqueos y horas ocupadas sin cita), para que Dana vea
+// por qué una hora no le sale libre a las clientas y lo pueda arreglar desde aquí
+function vOcupadoDia(f){
+  if(f<hoyISO())return '';
+  const dia=db.config.horario[deISO(f).getDay()];
+  if(!dia||!dia.activo)return `<div class="ocupa"><p class="tit">🕐 Disponibilidad</p><p class="sub">Este día está cerrado en tu horario semanal.</p>
+    <button class="mini az" onclick="ui.adminTab='horario';render()">Ir a Horario</button></div>`;
+  const filas=[],rango=(a,b)=>`${hora12(aHora(a))} – ${hora12(aHora(b))}`;
+  const activas=db.citas.filter(c=>c.fecha===f&&c.estado!=='cancelada');
+  activas.forEach(c=>{const o=ocupadoDe(c);filas.push([o.inicio,`<span><b>${rango(o.inicio,o.fin)}</b> · Cita de ${esc(c.nombre)}</span>`])});
+  if(FB)db.ocupado.filter(o=>o.fecha===f&&!activas.some(c=>c.id===o.id)).forEach(o=>filas.push([o.inicio,
+    `<span><b>${rango(o.inicio,o.fin)}</b> · Ocupado sin cita</span><button class="mini no" onclick="liberarHora('${o.id}')">Liberar</button>`]));
+  const D=db.config.descanso;
+  if(D.activo)filas.push([aMin(D.desde),`<span><b>${rango(aMin(D.desde),aMin(D.hasta))}</b> · Tu descanso diario</span><button class="mini az" onclick="ui.adminTab='horario';render()">Cambiar</button>`]);
+  db.config.bloqueos.forEach((b,i)=>{if(b.fecha!==f)return;
+    filas.push([b.todoDia?0:aMin(b.desde),`<span><b>${b.todoDia?'Todo el día':rango(aMin(b.desde),aMin(b.hasta))}</b> · Bloqueado${b.motivo?' ('+esc(b.motivo)+')':''}</span><button class="mini no" onclick="quitarBloqueo(${i})">Quitar</button>`])});
+  filas.sort((a,b)=>a[0]-b[0]);
+  return `<div class="ocupa"><p class="tit">🕐 Qué ocupa este día <span class="sub" style="font-weight:400">(abres ${hora12(dia.desde)} – ${hora12(dia.hasta)})</span></p>
+    ${filas.length?filas.map(x=>`<div class="ocupa-fila">${x[1]}</div>`).join(''):'<p class="sub">Nada: todo el día está libre ✨</p>'}
+    <p class="sub" style="margin-top:8px">Cada servicio dura un rato: si no alcanza a terminar antes de algo de esta lista o del cierre, esa hora le sale en gris a las clientas.</p></div>`;
+}
+async function liberarHora(id){
+  try{
+    const d=await ref('citas',id).get();
+    if(d.exists&&d.data().estado!=='cancelada'){aviso('📅','Esa hora sí tiene una cita','Búscala en la agenda');return}
+    await ref('ocupado',id).delete();aviso('🧹','Hora liberada','Ya las clientas la pueden agendar');
+  }catch(e){console.error(e);aviso('⚠️','No se pudo liberar','Revisa tu conexión e intenta de nuevo')}
 }
 
 // ----- Calendario del mes: cuántas citas hay cada día; al tocar un día se ven abajo -----
@@ -1495,7 +1531,7 @@ $('favicon').href=$('logoImg').src;
 
 // ================= Versión nueva =================
 // La app instalada a veces sigue mostrando la versión vieja: al abrirla o volver a ella se revisa si hay una nueva
-const VERSION='2026-11-06o'; // cambiar este texto cada vez que se publique un cambio
+const VERSION='2026-11-06p'; // cambiar este texto cada vez que se publique un cambio
 // El teléfono guarda una copia de la página: se pide la nueva sin usar esa copia y se recarga
 async function actualizarYa(){
   $('nuevaVersion').classList.remove('ver');
